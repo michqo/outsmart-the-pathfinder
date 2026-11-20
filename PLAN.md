@@ -25,7 +25,7 @@ Tick the boxes as we go. Every milestone ends with: browser check → screenshot
 | Tests | **Vitest from M2** (heap, A\*, the 4 basic moves). Every move rule gets tests in M3 |
 | Plan location | This file |
 
-Still OPEN (asked when we get there): the final name, the bot model variants (M2), and the hotbar/HUD look (M1).
+Still OPEN (asked when we get there): the final name, the bot model variants (M2).
 
 ---
 
@@ -70,7 +70,7 @@ Still OPEN (asked when we get there): the final name, the bot model variants (M2
 - [x] Focus the camera on a point: **F or ⌥-click** instead of double-click, because a double-click would also place two blocks
 - [x] Grass-side variants (Moss drip default, Top cap, Sage moss, Classic) to move away from the familiar grass-block look
 - [x] Player-facing material names: Moss, Clay, Slate, Crystal, Water
-- [x] **Check:** done 2026-11-20, single edits remesh in ~1 ms. Hotbar and grass style picks pending — edits are hitch-free (measure the chunk rebuild time in Tweakpane), screenshot → commit `M1`
+- [x] **Check:** done 2026-11-20, single edits remesh in ~1 ms. Hotbar: **Chips** (picked 2026-11-20). Grass: Moss drip default — edits are hitch-free (measure the chunk rebuild time in Tweakpane), screenshot → commit `M1`
 
 ## M2 — Walking bot (target: the 10-second wow)
 
