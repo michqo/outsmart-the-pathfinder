@@ -25,7 +25,7 @@ Tick the boxes as we go. Every milestone ends with: browser check → screenshot
 | Tests | **Vitest from M2** (heap, A\*, the 4 basic moves). Every move rule gets tests in M3 |
 | Plan location | This file |
 
-Still OPEN (asked when we get there): the final name, the exact palette (variants in M0), the bot model variants (M2), and the hotbar/HUD look (M1).
+Still OPEN (asked when we get there): the final name, the bot model variants (M2), and the hotbar/HUD look (M1).
 
 ---
 
@@ -54,7 +54,7 @@ Still OPEN (asked when we get there): the final name, the exact palette (variant
 - [x] `render/chunks.ts`: one `Mesh` per chunk, rebuilt only when dirty
 - [x] `render/underside.ts`: first pass at the low-poly rocky stalactites under the island (procedural cones, jittered)
 - [x] Tweakpane: FPS graph, palette picker, AO on/off (for comparison), shadow toggle
-- [x] **Check:** done 2026-11-19, 120 fps / ~0.5–0.8 ms frame, 15k tris, full remesh ~16–25 ms (32 chunks). Palette pick pending — a steady 60 fps, screenshot of 2–3 palette variants → you pick → commit `M0`
+- [x] **Check:** done 2026-11-19, 120 fps / ~0.5–0.8 ms frame, 15k tris, full remesh ~16–25 ms (32 chunks). Palette: **Meadow** (picked 2026-11-20) — a steady 60 fps, screenshot of 2–3 palette variants → you pick → commit `M0`
 
 ## M1 — Editor (target: sculpt the island)
 
