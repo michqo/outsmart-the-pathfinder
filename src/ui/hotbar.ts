@@ -44,8 +44,9 @@ const CSS = /* css */ `
 .hb.pebbles .tool.on { background: #3b3355; color: #fff; }
 .hb.pebbles .sep { display: none; }
 
-.hint { position: fixed; left: 14px; top: 12px; max-width: calc(100vw - 300px); font: 500 11px/1.6 ui-rounded, system-ui, sans-serif; color: #3b3355aa; user-select: none; pointer-events: none; }
+.hint { position: fixed; left: 14px; bottom: 14px; max-width: calc(50vw - 330px); font: 500 11px/1.6 ui-rounded, system-ui, sans-serif; color: #3b3355aa; user-select: none; pointer-events: none; }
 .hint b { color: #3b3355; font-weight: 600; }
+@media (max-width: 1180px) { .hint { display: none; } }
 `;
 
 export class Hotbar {

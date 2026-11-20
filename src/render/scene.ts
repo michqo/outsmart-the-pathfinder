@@ -32,7 +32,7 @@ export function createStage(): Stage {
   controls.target.set(0, 10, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.minDistance = 25;
+  controls.minDistance = 6;
   controls.maxDistance = 220;
   controls.maxPolarAngle = Math.PI * 0.78; // allow peeking at the underside
   controls.update();

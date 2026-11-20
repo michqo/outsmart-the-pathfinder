@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
+import { Handles } from './edit/handles';
+import { defaultSpawn } from './levels/spawn';
 import { EditHistory } from './edit/history';
 import { grassFaces, PALETTES } from './palette';
 import { ChunkRenderer } from './render/chunks';
@@ -7,15 +10,19 @@ import { createStage } from './render/scene';
 import { Sky } from './render/sky';
 import { buildUnderside } from './render/underside';
 import { Hotbar } from './ui/hotbar';
+import { Hud } from './ui/hud';
 import { createPanel, type Settings, type Stats } from './ui/panel';
 import { Mat } from './world/materials';
-import { generateTestIsland } from './world/testIsland';
+import { generateStressLevel, generateTestIsland } from './world/testIsland';
 import { World } from './world/world';
 
 const settings: Settings = {
   palette: 'meadow',
   grassStyle: 'drip',
   hotbarStyle: 'chips',
+  revealSeconds: 1.5,
+  vizStyle: 'glow',
+  botModel: 'capsule',
   ao: true,
   aoStrength: 0.5,
   jitter: 0.07,
@@ -74,6 +81,17 @@ function scheduleUnderside(): void {
 
 // ---------------------------------------------------------------- editing
 
+generateTestIsland(world, settings.seed);
+const hud = new Hud();
+const spawn = defaultSpawn(world);
+const bot = new BotController(stage, world, hud, settings.botModel, settings.vizStyle, spawn.start, spawn.goal);
+
+// Handles first: their capture listener must run before the editor's.
+new Handles(stage, world, [
+  { object: bot.bot.root, onDrop: (c) => bot.setStart(c), cell: () => bot.start },
+  { object: bot.goalMarker.root, onDrop: (c) => bot.setGoal(c), cell: () => bot.goal },
+]);
+
 const history = new EditHistory();
 const editor = new Editor(stage, world, history, colorOf);
 const hotbar = new Hotbar(HOTBAR_MATS, settings.hotbarStyle);
@@ -81,7 +99,10 @@ const syncHotbar = () => hotbar.setState(editor.material, editor.tool);
 hotbar.onSelect = (m) => editor.setMaterial(m);
 hotbar.onTool = (t) => editor.setTool(t);
 editor.onToolChange = syncHotbar;
-editor.onEdit = scheduleUnderside;
+editor.onEdit = () => {
+  scheduleUnderside();
+  bot.onWorldEdit();
+};
 syncHotbar();
 
 // ---------------------------------------------------------------- look
@@ -106,7 +127,6 @@ function applyMeshOptions(): void {
   world.markAllDirty();
 }
 
-generateTestIsland(world, settings.seed);
 applyMeshOptions();
 applyPalette();
 
@@ -118,15 +138,34 @@ createPanel(settings, stats, {
   onShadows: () => (stage.sun.castShadow = settings.shadows),
   onWireframe: () => chunks.setWireframe(settings.wireframe),
   onExposure: () => (stage.renderer.toneMappingExposure = settings.exposure),
-  onRegenerate: () => {
-    generateTestIsland(world, settings.seed);
-    history.clear();
-    rebuildUnderside();
-  },
+  onRegenerate: () => loadLevel(() => generateTestIsland(world, settings.seed)),
+  onStress: () => loadLevel(() => generateStressLevel(world), { start: [2, 25, 2], goal: [61, 1, 61] }),
+  onReveal: () => (bot.viz.duration = settings.revealSeconds),
+  onVizStyle: () => bot.setVizStyle(settings.vizStyle),
+  onBotModel: () => bot.setModel(settings.botModel),
+});
+
+function loadLevel(generate: () => void, spawnAt?: { start: [number, number, number]; goal: [number, number, number] }): void {
+  bot.halt();
+  generate();
+  history.clear();
+  rebuildUnderside();
+  const sp = spawnAt ?? defaultSpawn(world);
+  bot.setGoal(sp.goal);
+  bot.setStart(sp.start);
+  bot.viz.reset();
+  bot.ribbon.clear();
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || e.target instanceof HTMLInputElement) return;
+  e.preventDefault();
+  (document.activeElement as HTMLElement | null)?.blur?.();
+  bot.run();
 });
 
 // Dev-only handle for poking at the scene from the console.
-if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, settings, editor, applyPalette } });
+if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, settings, editor, bot, applyPalette } });
 
 // ---------------------------------------------------------------- loop
 
@@ -146,6 +185,7 @@ stage.renderer.setAnimationLoop((time) => {
     stats.triangles = chunks.stats.triangles;
   }
   editor.update(dt);
+  bot.update(dt, t);
   sky.update(t);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);

@@ -75,24 +75,25 @@ Still OPEN (asked when we get there): the final name, the bot model variants (M2
 ## M2 — Walking bot (target: the 10-second wow)
 
 **Search core**
-- [ ] `path/heap.ts`: a binary min-heap over `Uint32` node IDs keyed by f-score. Supports decrease-key, or lazy deletion
-- [ ] `path/moves.ts`: a table-driven move set. **v1: walk ×4, diagonal ×4, step-up 1, drop 1–3.** The bot is 2 tall. Costs exactly as in HANDOFF §6
-- [ ] `path/astar.ts`: A\* over `(x,y,z)` (`blocksLeft` comes in M3), an octile-3D heuristic, a weight `w` parameter (UI in M5)
-- [ ] `path/worker.ts`: receives a world snapshot (a transferred `Uint8Array` copy) + start/goal. Time-sliced: expand for ~8 ms, post a **snapshot** (new open/closed IDs as transferred `Uint32Array`s), yield, repeat. Supports cancel
-- [ ] Vitest: heap ordering, each of the 4 move rules (positive + negative cases), A\* finds the optimal path on small hand-built worlds, unreachable goal → "no path"
+- [x] `path/heap.ts`: a binary min-heap over `Uint32` node IDs keyed by f-score. Supports decrease-key, or lazy deletion
+- [x] `path/moves.ts`: a table-driven move set. **v1: walk ×4, diagonal ×4, step-up 1, drop 1–3.** The bot is 2 tall. Costs exactly as in HANDOFF §6
+- [x] `path/astar.ts`: A\* over `(x,y,z)` (`blocksLeft` comes in M3), an octile-3D heuristic, a weight `w` parameter (UI in M5)
+- [x] `path/worker.ts`: receives a world snapshot (a transferred `Uint8Array` copy) + start/goal. Time-sliced: expand for ~8 ms, post a **snapshot** (new open/closed IDs as transferred `Uint32Array`s), yield, repeat. Supports cancel
+- [x] Vitest: heap ordering, each of the 4 move rules (positive + negative cases), A\* finds the optimal path on small hand-built worlds, unreachable goal → "no path"
 
 **Visualization**
-- [ ] `render/searchViz.ts`: one `InstancedMesh` (max ~64k instances). Frontier = cyan, pulsing. Closed = fades to a dim, translucent blue over ~1 s. Driven by a playback queue so the default reveal takes **~1.5 s** whatever the node count. Speed slider: instant ↔ slow-mo
-- [ ] `render/pathRibbon.ts`: a bright ribbon along the path with arrow chevrons that scroll gently
-- [ ] **2–3 viz variants** (cube size/glow/fade) behind a dropdown
+- [x] `render/searchViz.ts`: one `InstancedMesh` (max ~64k instances). Frontier = cyan, pulsing. Closed = fades to a dim, translucent blue over ~1 s. Driven by a playback queue so the default reveal takes **~1.5 s** whatever the node count. Speed slider: instant ↔ slow-mo
+- [x] `render/pathRibbon.ts`: a bright ribbon along the path with arrow chevrons that scroll gently
+- [x] **2–3 viz variants** (cube size/glow/fade) behind a dropdown
 
 **Bot**
-- [ ] `render/bot.ts`: a procedural low-poly robot (capsule body, big eye, little legs, maybe an antenna). **2–3 model variants** behind a dropdown
-- [ ] `bot/executor.ts`: follows the path step by step, with interpolation per move type (walk = bob, step-up = small hop, drop = fall + squash on landing)
-- [ ] Personality: the eye squints/looks around while the search runs, a hop of joy at the goal, a wobble after a 3-block drop, a confused head-tilt on "no path"
-- [ ] Draggable start (the robot) and goal (an original flag/beacon model), snapped to standable cells
-- [ ] `Space` = run. Minimal HUD: nodes expanded, path length, path cost, search ms
-- [ ] **Check:** with a search of ~50k nodes the frame time stays flat (Tweakpane graph), screenshot/GIF → commit `M2`
+- [x] `render/bot.ts`: a procedural low-poly robot (capsule body, big eye, little legs, maybe an antenna). **2–3 model variants** behind a dropdown
+- [x] `bot/executor.ts`: follows the path step by step, with interpolation per move type (walk = bob, step-up = small hop, drop = fall + squash on landing)
+- [x] Personality: the eye squints/looks around while the search runs, a hop of joy at the goal, a wobble after a 3-block drop, a confused head-tilt on "no path"
+- [x] Draggable start (the robot) and goal (a floating star-seed over a landing ring), snapped to standable cells
+- [x] `Space` = run. Minimal HUD: nodes expanded, path length, path cost, search ms
+- [x] Stress level (Debug → 9 stacked floors). A walled-off goal forces the full search: 35.7k nodes in 21.7 ms of worker time, no main-thread long tasks, playback under 0.1 ms per frame
+- [x] **Check:** done 2026-11-20. Robot model pick pending (Capsule / Boxy / Bulb) — with a search of ~50k nodes the frame time stays flat (Tweakpane graph), screenshot/GIF → commit `M2`
 
 ### ⏸ Reassess after M2
 Review together: the look, the feel, performance, and whether the move-rule approach still makes sense. Then refine M3+.
