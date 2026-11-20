@@ -41,6 +41,14 @@ export class PathRibbon {
       }`,
   });
   private revealSpeed = 0;
+  /** Dig / place markers by the step index that uses them. */
+  private markers = new Map<number, THREE.Object3D>();
+  private drillGeo = new THREE.ConeGeometry(0.16, 0.42, 6).rotateX(Math.PI);
+  private drillMat = new THREE.MeshStandardMaterial({ color: 0xff7a64, roughness: 0.4, flatShading: true });
+  private ghostGeo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
+  private ghostMat = new THREE.MeshBasicMaterial({ color: 0xffa25c, transparent: true, opacity: 0.32, depthWrite: false });
+  private ghostEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02));
+  private edgeMat = new THREE.LineBasicMaterial({ color: 0xff8a3d });
 
   show(nodes: Int32Array, kinds: Uint8Array, revealSeconds = 0.5): void {
     this.clear();
@@ -58,6 +66,7 @@ export class PathRibbon {
       pts.push(p);
       prev = p;
     }
+    this.addMarkers(nodes, kinds);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const len = curve.getLength();
     const geo = new THREE.TubeGeometry(curve, Math.max(16, Math.ceil(len * 10)), 0.14, 8, false);
@@ -75,7 +84,44 @@ export class PathRibbon {
     return this.uniforms.uReveal.value >= 1;
   }
 
+  /** Drill bits over blocks the bot will dig; ghost blocks where it will build. */
+  private addMarkers(nodes: Int32Array, kinds: Uint8Array): void {
+    for (let i = 1; i < nodes.length; i++) {
+      const k = kinds[i];
+      const [x, y, z] = voxelCoords(nodes[i]);
+      const [px, py, pz] = voxelCoords(nodes[i - 1]);
+      let m: THREE.Object3D | null = null;
+      if (k === MoveKind.Dig || k === MoveKind.DigDown) {
+        // Hovers over the column being dug, pointing down at it.
+        m = new THREE.Mesh(this.drillGeo, this.drillMat);
+        if (k === MoveKind.Dig) m.position.set(x + 0.5, y + 2.6, z + 0.5);
+        else m.position.set(px + 0.5, py + 2.6, pz + 0.5);
+      } else if (k === MoveKind.Bridge || k === MoveKind.Pillar) {
+        const g = new THREE.Group();
+        g.add(new THREE.Mesh(this.ghostGeo, this.ghostMat), new THREE.LineSegments(this.ghostEdges, this.edgeMat));
+        if (k === MoveKind.Bridge) g.position.set(x + 0.5, y - 0.5, z + 0.5);
+        else g.position.set(px + 0.5, py + 0.5, pz + 0.5);
+        m = g;
+      }
+      if (m) {
+        m.userData.baseY = m.position.y;
+        this.markers.set(i, m);
+        this.group.add(m);
+      }
+    }
+  }
+
+  /** The bot finished step `i`: its marker has done its job. */
+  stepDone(i: number): void {
+    const m = this.markers.get(i);
+    if (!m) return;
+    this.group.remove(m);
+    this.markers.delete(i);
+  }
+
   clear(): void {
+    for (const m of this.markers.values()) this.group.remove(m);
+    this.markers.clear();
     if (this.mesh) {
       this.group.remove(this.mesh);
       this.mesh.geometry.dispose();
@@ -89,6 +135,12 @@ export class PathRibbon {
 
   update(time: number, dt: number): void {
     this.uniforms.uTime.value = time;
+    for (const m of this.markers.values()) {
+      if (m instanceof THREE.Mesh) {
+        m.rotation.y = time * 4;
+        m.position.y = m.userData.baseY + Math.sin(time * 4) * 0.12;
+      }
+    }
     const u = this.uniforms.uReveal;
     if (u.value < 1) u.value = Math.min(1, u.value + dt * this.revealSpeed);
   }

@@ -38,7 +38,10 @@ export class SearchViz {
     uFade: { value: 1.0 },
     uSize: { value: 0.3 },
     uLift: { value: 0.4 },
+    uGlobal: { value: 1 },
   };
+  private globalTarget = 1;
+  private globalSpeed = 1;
 
   constructor(style: VizStyle) {
     this.offsets.setUsage(THREE.DynamicDrawUsage);
@@ -53,7 +56,7 @@ export class SearchViz {
         vertexShader: /* glsl */ `
           attribute vec3 aOffset;
           attribute vec2 aTimes; // x: opened at, y: closed at (<0 = still open)
-          uniform float uTime, uFade, uSize, uLift;
+          uniform float uTime, uFade, uSize, uLift, uGlobal;
           varying vec3 vColor;
           varying float vAlpha;
           void main() {
@@ -66,7 +69,7 @@ export class SearchViz {
             vec3 frontier = vec3(0.1, 0.85, 1.0) * pulse + vec3(0.5) * (1.0 - pop);
             vec3 closed = vec3(0.3, 0.38, 0.95);
             vColor = mix(frontier, closed, tc);
-            vAlpha = shown * mix(1.0, 0.4, tc);
+            vAlpha = shown * mix(1.0, 0.4, tc) * uGlobal;
             float s = uSize * pop * mix(1.1, 0.7, tc);
             vec3 p = aOffset + vec3(0.0, uLift, 0.0) + position * s;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
@@ -119,11 +122,18 @@ export class SearchViz {
     this.known = this.played = 0;
     this.done = false;
     this.rate = 0;
+    this.uniforms.uGlobal.value = this.globalTarget = 1;
   }
 
   /** Clears the cubes. */
   hide(): void {
     this.reset();
+  }
+
+  /** Fades the whole search (e.g. down while the bot walks, so it stays readable). */
+  fadeTo(alpha: number, seconds: number): void {
+    this.globalTarget = alpha;
+    this.globalSpeed = seconds > 0 ? 1 / seconds : Infinity;
   }
 
   push(events: Uint32Array): void {
@@ -140,6 +150,11 @@ export class SearchViz {
 
   update(time: number, dt: number): void {
     this.uniforms.uTime.value = time;
+    const g = this.uniforms.uGlobal;
+    if (g.value !== this.globalTarget) {
+      const step = dt * this.globalSpeed;
+      g.value = g.value < this.globalTarget ? Math.min(this.globalTarget, g.value + step) : Math.max(this.globalTarget, g.value - step);
+    }
     if (this.played >= this.known) return;
     // While still searching, play at a rate based on what we know so far.
     const rate = this.done ? this.rate : this.duration > 0 ? this.known / this.duration : Infinity;

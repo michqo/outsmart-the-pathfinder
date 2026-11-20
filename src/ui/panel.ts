@@ -11,6 +11,7 @@ export interface Settings {
   revealSeconds: number;
   vizStyle: VizStyle;
   botModel: BotModel;
+  inventory: number;
   ao: boolean;
   aoStrength: number;
   jitter: number;
@@ -38,9 +39,11 @@ export interface PanelHandlers {
   onExposure(): void;
   onRegenerate(): void;
   onStress(): void;
+  onGauntlet(): void;
   onReveal(): void;
   onVizStyle(): void;
   onBotModel(): void;
+  onInventory(): void;
 }
 
 export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers): Pane {
@@ -57,6 +60,7 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   const search = pane.addFolder({ title: 'Search' });
   search.addBinding(settings, 'revealSeconds', { label: 'reveal (s)', min: 0, max: 6, step: 0.1 }).on('change', h.onReveal);
   search.addBinding(settings, 'vizStyle', { label: 'viz', options: VIZ_STYLES }).on('change', h.onVizStyle);
+  search.addBinding(settings, 'inventory', { label: 'blocks', min: 0, max: 32, step: 1 }).on('change', h.onInventory);
   search.addBinding(settings, 'botModel', { label: 'robot', options: BOT_MODELS }).on('change', h.onBotModel);
 
   const look = pane.addFolder({ title: 'Look', expanded: false });
@@ -74,6 +78,7 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   debug.addBinding(settings, 'wireframe').on('change', h.onWireframe);
   debug.addBinding(settings, 'seed', { min: 1, max: 99, step: 1 });
   debug.addButton({ title: 'Regenerate island' }).on('click', h.onRegenerate);
+  debug.addButton({ title: 'Gauntlet (all moves)' }).on('click', h.onGauntlet);
   debug.addButton({ title: 'Stress level (9 floors)' }).on('click', h.onStress);
 
   return pane;

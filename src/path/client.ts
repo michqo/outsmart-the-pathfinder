@@ -31,12 +31,12 @@ export class SearchClient {
     return this.handlers !== null;
   }
 
-  search(world: World, start: Vec3i, goal: Vec3i, weight: number, handlers: SearchHandlers): void {
+  search(world: World, start: Vec3i, goal: Vec3i, weight: number, blocks: number, handlers: SearchHandlers): void {
     this.cancel();
     this.currentId++;
     this.handlers = handlers;
     const data = world.data.slice();
-    const msg: ToWorker = { type: 'search', id: this.currentId, data, start, goal, weight, version: world.version };
+    const msg: ToWorker = { type: 'search', id: this.currentId, data, start, goal, weight, blocks, version: world.version };
     this.worker.postMessage(msg, [data.buffer]);
   }
 

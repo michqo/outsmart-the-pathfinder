@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 export const BOT_MODELS = { Capsule: 'capsule', Boxy: 'boxy', Bulb: 'bulb' } as const;
 export type BotModel = (typeof BOT_MODELS)[keyof typeof BOT_MODELS];
 
-export type Mood = 'idle' | 'thinking' | 'walking' | 'happy' | 'confused';
+export type Mood = 'idle' | 'thinking' | 'walking' | 'working' | 'happy' | 'confused';
 
 const CREAM = 0xfaf4ec;
 const CORAL = 0xff8f78;
@@ -138,6 +138,14 @@ export class BotView {
         tiltX = 0.08;
         tiltZ = Math.sin(this.walkPhase) * 0.05;
         break;
+      case 'working':
+        // Leaning in, buzzing with effort.
+        squint = 0.55;
+        tiltX = 0.28;
+        bob = Math.sin(mt * 50) * 0.015;
+        tiltZ = Math.sin(mt * 43) * 0.03;
+        this.antenna.rotation.z = Math.sin(mt * 30) * 0.3;
+        break;
       case 'happy': {
         const hopping = mt < 1.3;
         hop = hopping ? Math.abs(Math.sin(mt * 7.5)) * 0.4 : 0;
@@ -176,7 +184,7 @@ export class BotView {
     this.eye.scale.set(1, damp(this.eye.scale.y, squint, dt, 18), 1);
     this.eye.position.x = damp(this.eye.position.x, lookX, dt, 8);
     this.eye.rotation.x = -lookY * 3;
-    if (this.mood !== 'thinking') this.antenna.rotation.z = damp(this.antenna.rotation.z, -tiltZ * 1.5, dt, 6);
+    if (this.mood !== 'thinking' && this.mood !== 'working') this.antenna.rotation.z = damp(this.antenna.rotation.z, -tiltZ * 1.5, dt, 6);
     this.legs[0].rotation.x = legSwing;
     this.legs[1].rotation.x = -legSwing;
   }

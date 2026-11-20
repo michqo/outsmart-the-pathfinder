@@ -5,19 +5,20 @@ const CSS = /* css */ `
   color: #3b3355; user-select: none; white-space: nowrap; }
 .hud .status { display: flex; align-items: center; gap: 6px; min-width: 92px; }
 .hud .dot { width: 8px; height: 8px; border-radius: 50%; background: #b9b3c9; }
-.hud .dot.searching { background: #3fd6f0; animation: hudpulse .6s infinite alternate; }
+.hud .dot.searching, .hud .dot.replanning { background: #3fd6f0; animation: hudpulse .6s infinite alternate; }
 .hud .dot.walking { background: #ff8f78; }
 .hud .dot.happy { background: #8fd46f; }
 .hud .dot.stuck { background: #e0475a; }
 @keyframes hudpulse { to { transform: scale(1.5); opacity: .6; } }
 .hud .stat { display: flex; flex-direction: column; align-items: center; }
+.hud .sep { width: 1px; align-self: stretch; background: #3b335522; }
 .hud .stat b { font-size: 15px; font-variant-numeric: tabular-nums; }
 .hud .stat span { font-size: 9px; opacity: .55; text-transform: uppercase; letter-spacing: .06em; }
 .hud kbd { font: inherit; padding: 2px 7px; border-radius: 6px; background: #3b3355; color: #fff; }
 @media (max-width: 720px) { .hud { top: auto; bottom: 84px; } }
 `;
 
-export type HudStatus = 'ready' | 'searching' | 'walking' | 'happy' | 'stuck';
+export type HudStatus = 'ready' | 'searching' | 'walking' | 'happy' | 'stuck' | 'replanning';
 
 const LABEL: Record<HudStatus, string> = {
   ready: 'Ready',
@@ -25,6 +26,7 @@ const LABEL: Record<HudStatus, string> = {
   walking: 'Walking',
   happy: 'Made it!',
   stuck: 'No path',
+  replanning: 'Replanning…',
 };
 
 export interface HudStats {
@@ -32,6 +34,9 @@ export interface HudStats {
   pathLength: number;
   cost: number;
   ms: number;
+  blocks: string;
+  dug: number;
+  built: number;
 }
 
 /** The score strip: status plus the numbers that make the "make it work hard" game. */
@@ -50,12 +55,16 @@ export class Hud {
     this.el.innerHTML =
       `<div class="status"><i class="dot"></i><span class="label"></span></div>` +
       stat('expanded', 'nodes') + stat('pathLength', 'steps') + stat('cost', 'cost') + stat('ms', 'ms') +
+      `<i class="sep"></i>` + stat('blocks', 'blocks') + stat('dug', 'dug') + stat('built', 'built') +
       `<kbd>Space</kbd>`;
     document.body.appendChild(this.el);
     this.dot = this.el.querySelector('.dot')!;
     this.label = this.el.querySelector('.label')!;
     const v = (k: string) => this.el.querySelector(`[data-k="${k}"]`) as HTMLElement;
-    this.values = { expanded: v('expanded'), pathLength: v('pathLength'), cost: v('cost'), ms: v('ms') };
+    this.values = {
+      expanded: v('expanded'), pathLength: v('pathLength'), cost: v('cost'), ms: v('ms'),
+      blocks: v('blocks'), dug: v('dug'), built: v('built'),
+    };
     this.setStatus('ready');
   }
 
@@ -69,5 +78,8 @@ export class Hud {
     if (s.pathLength !== undefined) this.values.pathLength.textContent = s.pathLength ? String(s.pathLength) : '–';
     if (s.cost !== undefined) this.values.cost.textContent = s.cost ? s.cost.toFixed(1) : '–';
     if (s.ms !== undefined) this.values.ms.textContent = s.ms.toFixed(1);
+    if (s.blocks !== undefined) this.values.blocks.textContent = s.blocks;
+    if (s.dug !== undefined) this.values.dug.textContent = String(s.dug);
+    if (s.built !== undefined) this.values.built.textContent = String(s.built);
   }
 }

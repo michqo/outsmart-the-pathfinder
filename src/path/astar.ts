@@ -2,39 +2,101 @@ import { SX, SY, SZ } from '../world/world';
 import { MinHeap } from './heap';
 import { expandMoves, heuristic, MoveKind, type Grid, type MoveSink } from './moves';
 
-const N = SX * SY * SZ;
-const NEW = 0, OPEN = 1, CLOSED = 2;
-/** High bit in an event marks "closed"; otherwise the node was just opened. */
+/** High bit in an event marks "closed"; otherwise the cell was just opened. Events carry cell ids. */
 export const CLOSED_FLAG = 0x80000000;
 
 export type SearchStatus = 'running' | 'found' | 'failed';
 
 export interface PathResult {
-  /** Node ids (voxel indices of the feet cell), start first. */
+  /** Cell ids (voxel indices of the feet cell), start first. */
   nodes: Int32Array;
   /** How each node was reached (MoveKind). */
   kinds: Uint8Array;
   cost: number;
 }
 
-const idx = (x: number, y: number, z: number) => x + z * SX + y * SX * SZ;
+const cellId = (x: number, y: number, z: number) => x + z * SX + y * SX * SZ;
 
 /**
- * Weighted A* over (x, y, z). Resumable: call step() repeatedly so a worker can time-slice it.
- * No per-node allocation: all state lives in typed arrays.
+ * Search states (cell, blocksLeft) live in a growable node store found through an
+ * open-addressing hash, so memory follows the nodes actually touched rather than
+ * every possible (cell, inventory) pair.
+ */
+class NodeStore {
+  key = new Int32Array(1 << 12);
+  g = new Float32Array(1 << 12);
+  parent = new Int32Array(1 << 12);
+  kind = new Uint8Array(1 << 12);
+  closed = new Uint8Array(1 << 12);
+  count = 0;
+  private table = new Int32Array(1 << 14).fill(-1);
+  private mask = (1 << 14) - 1;
+
+  find(key: number): number {
+    let h = Math.imul(key, 0x9e3779b1) & this.mask;
+    for (;;) {
+      const n = this.table[h];
+      if (n < 0) return -1;
+      if (this.key[n] === key) return n;
+      h = (h + 1) & this.mask;
+    }
+  }
+
+  add(key: number): number {
+    if (this.count === this.key.length) this.growNodes();
+    if (this.count * 2 >= this.table.length) this.growTable();
+    const n = this.count++;
+    this.key[n] = key;
+    this.closed[n] = 0;
+    this.insert(key, n);
+    return n;
+  }
+
+  private insert(key: number, n: number): void {
+    let h = Math.imul(key, 0x9e3779b1) & this.mask;
+    while (this.table[h] >= 0) h = (h + 1) & this.mask;
+    this.table[h] = n;
+  }
+
+  private growNodes(): void {
+    const size = this.key.length * 2;
+    const grow = <T extends Int32Array | Float32Array | Uint8Array>(a: T, make: (n: number) => T): T => {
+      const b = make(size);
+      b.set(a);
+      return b;
+    };
+    this.key = grow(this.key, (n) => new Int32Array(n));
+    this.g = grow(this.g, (n) => new Float32Array(n));
+    this.parent = grow(this.parent, (n) => new Int32Array(n));
+    this.kind = grow(this.kind, (n) => new Uint8Array(n));
+    this.closed = grow(this.closed, (n) => new Uint8Array(n));
+  }
+
+  private growTable(): void {
+    this.table = new Int32Array(this.table.length * 2).fill(-1);
+    this.mask = this.table.length - 1;
+    for (let n = 0; n < this.count; n++) this.insert(this.key[n], n);
+  }
+}
+
+/**
+ * Weighted A* over (x, y, z, blocksLeft). Resumable: call step() repeatedly so a worker
+ * can time-slice it. No per-node object allocation: everything lives in typed arrays.
  */
 export class AStar {
-  readonly g = new Float32Array(N);
-  readonly parent = new Int32Array(N);
-  readonly kind = new Uint8Array(N);
-  readonly state = new Uint8Array(N);
+  private nodes = new NodeStore();
   private heap = new MinHeap();
   private events = new Uint32Array(1 << 14);
   private eventCount = 0;
+  private seenCell = new Uint8Array(SX * SY * SZ);
+  private stride: number;
+  private goalCell: number;
+  private goalNode = -1;
   private cur = 0;
   private curG = 0;
-  private goalId: number;
+  private curBlocks = 0;
   status: SearchStatus = 'running';
+  /** States expanded (a cell can be expanded once per inventory count). */
   expanded = 0;
 
   constructor(
@@ -42,53 +104,71 @@ export class AStar {
     start: readonly [number, number, number],
     private goal: readonly [number, number, number],
     private weight = 1,
+    blocks = 0,
   ) {
-    this.goalId = idx(goal[0], goal[1], goal[2]);
-    const s = idx(start[0], start[1], start[2]);
-    this.g[s] = 0;
-    this.parent[s] = -1;
-    this.kind[s] = MoveKind.Start;
-    this.state[s] = OPEN;
-    this.pushEvent(s);
-    this.heap.push(s, this.weight * heuristic(start[0], start[1], start[2], goal[0], goal[1], goal[2]));
+    this.stride = blocks + 1;
+    this.goalCell = cellId(goal[0], goal[1], goal[2]);
+    const sc = cellId(start[0], start[1], start[2]);
+    const n = this.nodes.add(sc * this.stride + blocks);
+    this.nodes.g[n] = 0;
+    this.nodes.parent[n] = -1;
+    this.nodes.kind[n] = MoveKind.Start;
+    this.openCell(sc);
+    this.heap.push(n, this.weight * heuristic(start[0], start[1], start[2], goal[0], goal[1], goal[2]));
   }
 
-  /** Expands up to `max` nodes. */
+  /** Expands up to `max` states. */
   step(max: number): SearchStatus {
     if (this.status !== 'running') return this.status;
-    const heap = this.heap;
-    for (let n = 0; n < max; n++) {
+    const heap = this.heap, ns = this.nodes, stride = this.stride;
+    for (let i = 0; i < max; i++) {
       if (heap.size === 0) return (this.status = 'failed');
-      const id = heap.pop();
-      if (this.state[id] === CLOSED) continue; // stale duplicate
-      this.state[id] = CLOSED;
-      this.pushEvent(id | CLOSED_FLAG);
+      const n = heap.pop();
+      if (ns.closed[n]) continue; // stale duplicate
+      ns.closed[n] = 1;
       this.expanded++;
-      if (id === this.goalId) return (this.status = 'found');
-
-      const x = id % SX, z = Math.floor(id / SX) % SZ, y = Math.floor(id / (SX * SZ));
-      this.cur = id;
-      this.curG = this.g[id];
-      expandMoves(this.grid, x, y, z, this.relax);
+      const key = ns.key[n];
+      const cell = Math.floor(key / stride);
+      this.pushEvent(cell | CLOSED_FLAG);
+      if (cell === this.goalCell) {
+        this.goalNode = n;
+        return (this.status = 'found');
+      }
+      const x = cell % SX, z = Math.floor(cell / SX) % SZ, y = Math.floor(cell / (SX * SZ));
+      this.cur = n;
+      this.curG = ns.g[n];
+      this.curBlocks = key - cell * stride;
+      expandMoves(this.grid, x, y, z, this.curBlocks, this.relax);
     }
     return this.status;
   }
 
-  private relax: MoveSink = (x, y, z, cost, kind) => {
+  private relax: MoveSink = (x, y, z, cost, kind, used) => {
     if (x < 0 || y < 0 || z < 0 || x >= SX || y >= SY || z >= SZ) return;
-    const id = idx(x, y, z);
-    const st = this.state[id];
-    if (st === CLOSED) return;
+    const cell = cellId(x, y, z);
+    const key = cell * this.stride + (this.curBlocks - used);
+    const ns = this.nodes;
     const g = this.curG + cost;
-    if (st === OPEN && g >= this.g[id]) return;
-    if (st === NEW) this.pushEvent(id);
-    this.state[id] = OPEN;
-    this.g[id] = g;
-    this.parent[id] = this.cur;
-    this.kind[id] = kind;
+    let n = ns.find(key);
+    if (n >= 0) {
+      if (ns.closed[n] || g >= ns.g[n]) return;
+    } else {
+      n = ns.add(key);
+      this.openCell(cell);
+    }
+    ns.g[n] = g;
+    ns.parent[n] = this.cur;
+    ns.kind[n] = kind;
     const gl = this.goal;
-    this.heap.push(id, g + this.weight * heuristic(x, y, z, gl[0], gl[1], gl[2]));
+    this.heap.push(n, g + this.weight * heuristic(x, y, z, gl[0], gl[1], gl[2]));
   };
+
+  /** Emits an "opened" event the first time a cell is seen (whatever the inventory). */
+  private openCell(cell: number): void {
+    if (this.seenCell[cell]) return;
+    this.seenCell[cell] = 1;
+    this.pushEvent(cell);
+  }
 
   private pushEvent(e: number): void {
     if (this.eventCount === this.events.length) {
@@ -108,12 +188,15 @@ export class AStar {
 
   path(): PathResult | null {
     if (this.status !== 'found') return null;
-    const ids: number[] = [];
-    for (let id = this.goalId; id !== -1; id = this.parent[id]) ids.push(id);
-    ids.reverse();
-    const nodes = Int32Array.from(ids);
-    const kinds = Uint8Array.from(ids, (id) => this.kind[id]);
-    return { nodes, kinds, cost: this.g[this.goalId] };
+    const ns = this.nodes;
+    const chain: number[] = [];
+    for (let n = this.goalNode; n !== -1; n = ns.parent[n]) chain.push(n);
+    chain.reverse();
+    return {
+      nodes: Int32Array.from(chain, (n) => Math.floor(ns.key[n] / this.stride)),
+      kinds: Uint8Array.from(chain, (n) => ns.kind[n]),
+      cost: ns.g[this.goalNode],
+    };
   }
 
   /** Runs to completion (tests, tools). */

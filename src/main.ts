@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
 import { Handles } from './edit/handles';
+import { generateGauntlet } from './levels/gauntlet';
 import { defaultSpawn } from './levels/spawn';
 import { EditHistory } from './edit/history';
 import { grassFaces, PALETTES } from './palette';
@@ -23,6 +24,7 @@ const settings: Settings = {
   revealSeconds: 1.5,
   vizStyle: 'glow',
   botModel: 'capsule',
+  inventory: 16,
   ao: true,
   aoStrength: 0.5,
   jitter: 0.07,
@@ -84,11 +86,24 @@ function scheduleUnderside(): void {
 generateTestIsland(world, settings.seed);
 const hud = new Hud();
 const spawn = defaultSpawn(world);
-const bot = new BotController(stage, world, hud, settings.botModel, settings.vizStyle, spawn.start, spawn.goal);
+const bot = new BotController(
+  stage,
+  world,
+  hud,
+  {
+    model: settings.botModel,
+    vizStyle: settings.vizStyle,
+    blocks: settings.inventory,
+    colorOf,
+    onWorldChanged: () => scheduleUnderside(),
+  },
+  spawn.start,
+  spawn.goal,
+);
 
 // Handles first: their capture listener must run before the editor's.
 new Handles(stage, world, [
-  { object: bot.bot.root, onDrop: (c) => bot.setStart(c), cell: () => bot.start },
+  { object: bot.bot.root, onDrop: (c) => bot.setStart(c), cell: () => bot.home },
   { object: bot.goalMarker.root, onDrop: (c) => bot.setGoal(c), cell: () => bot.goal },
 ]);
 
@@ -139,22 +154,26 @@ createPanel(settings, stats, {
   onWireframe: () => chunks.setWireframe(settings.wireframe),
   onExposure: () => (stage.renderer.toneMappingExposure = settings.exposure),
   onRegenerate: () => loadLevel(() => generateTestIsland(world, settings.seed)),
+  onGauntlet: () => {
+    let sp = { start: [0, 0, 0] as [number, number, number], goal: [0, 0, 0] as [number, number, number] };
+    loadLevel(() => (sp = generateGauntlet(world)), undefined, () => sp);
+  },
   onStress: () => loadLevel(() => generateStressLevel(world), { start: [2, 25, 2], goal: [61, 1, 61] }),
   onReveal: () => (bot.viz.duration = settings.revealSeconds),
   onVizStyle: () => bot.setVizStyle(settings.vizStyle),
   onBotModel: () => bot.setModel(settings.botModel),
+  onInventory: () => bot.setInventory(settings.inventory),
 });
 
-function loadLevel(generate: () => void, spawnAt?: { start: [number, number, number]; goal: [number, number, number] }): void {
-  bot.halt();
+type Spawn = { start: [number, number, number]; goal: [number, number, number] };
+function loadLevel(generate: () => void, spawnAt?: Spawn, spawnFn?: () => Spawn): void {
+  bot.forgetChanges();
   generate();
   history.clear();
   rebuildUnderside();
-  const sp = spawnAt ?? defaultSpawn(world);
+  const sp = spawnFn?.() ?? spawnAt ?? defaultSpawn(world);
   bot.setGoal(sp.goal);
   bot.setStart(sp.start);
-  bot.viz.reset();
-  bot.ribbon.clear();
 }
 
 window.addEventListener('keydown', (e) => {

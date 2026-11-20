@@ -102,7 +102,18 @@ Review together: the look, the feel, performance, and whether the move-rule appr
 
 ## Later (outline, refined after M2)
 
-- **M3 — World-changing moves:** state becomes `(x,y,z,blocksLeft)`. Dig forward/down, bridge, pillar, swim. Inventory HUD, bot-placed block color, drill sparkle + place "pop". A Vitest suite per move incl. the edge cases (no digging your own support, place needs an adjacent face, max drop 3, water rules). *Riskiest milestone. Tests first.*
+- **M3 — World-changing moves:** ✅ done 2026-11-20
+  - [x] State is `(x,y,z,blocksLeft)` in a hashed node store (memory follows nodes touched)
+  - [x] Dig forward (feet/head, 1 + hardness each), dig down (only onto a block: never into a fall), bridge (3, spends 1), pillar (4, spends 1), swim (3, at the surface; climb out with a step-up)
+  - [x] Hardness: Moss/Clay/placed 1, Slate 4, Crystal undiggable. **No refund** for dug blocks (decided 2026-11-20)
+  - [x] Execution changes the world (drill shell + sparks + debris, springy place pop, working mood); placed blocks are a saturated orange
+  - [x] Every step is re-checked against the real world first; a dig/bridge that's no longer needed becomes a walk; an impossible step triggers a visualised **replan** from where the bot stands
+  - [x] **Course auto-restore** (decided 2026-11-20): Space undoes the bot's changes (player edits since win), refills the inventory and runs from home
+  - [x] Path markers: spinning drill bits over blocks to dig, ghost blocks where it will build
+  - [x] HUD: blocks left/total, dug, built. Inventory slider (0–32) in the Search panel
+  - [x] Search cubes fade to 15 % while the bot walks
+  - [x] Debug → "Gauntlet": moat, clay wall, chasm, crystal cliff (needs every move). 48 Vitest tests
+  - Known nit: underside rock spikes poke into deep chasms (polish later)
 - **M4 — Live replanning:** edits that touch the remaining path → cancel + rerun A\* from the bot's cell. Execution-time validation of every step. The replan is visualized. "Follow bot" camera.
 - **M5 — Game layer:** score panel, 5–8 built-in levels (tutorial → hard), RLE + `CompressionStream` deflate → base64url share links (round-trip tests), weighted-A\* slider.
 - **M6 — Polish + deploy:** synth blips (optional), loading screen, touch controls, a "how to play" overlay, final name, **Vercel** deploy (`vercel.json` not needed for a plain Vite static build; set up the GitHub repo first).

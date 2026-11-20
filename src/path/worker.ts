@@ -27,7 +27,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     return;
   }
   world.data.set(msg.data);
-  job = { id: msg.id, astar: new AStar(world, msg.start, msg.goal, msg.weight), version: msg.version, computeMs: 0 };
+  job = { id: msg.id, astar: new AStar(world, msg.start, msg.goal, msg.weight, msg.blocks), version: msg.version, computeMs: 0 };
   run();
 };
 
