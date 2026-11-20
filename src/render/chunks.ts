@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import type { Palette } from '../palette';
+import { grassFaces, type GrassStyle, type Palette } from '../palette';
 import { MAT_KEYS } from '../world/materials';
-import { COLOR_TABLE_SIZE, meshChunk, type MeshData, type MeshOptions } from '../world/mesher';
+import { COLOR_KINDS, COLOR_TABLE_SIZE, meshChunk, type MeshData, type MeshOptions } from '../world/mesher';
 import { CHUNK_COUNT, CX, CZ, World } from '../world/world';
 
 /** Owns one opaque + one water mesh per chunk and rebuilds only dirty chunks. */
@@ -49,16 +49,17 @@ export class ChunkRenderer {
     });
   }
 
-  setPalette(p: Palette): void {
+  setPalette(p: Palette, grassStyle: GrassStyle): void {
     const c = new THREE.Color();
     const t = this.opts.colorTable;
     for (let m = 1; m < MAT_KEYS.length; m++) {
       const key = MAT_KEYS[m];
       if (key === 'water' || key === 'air') continue;
       const f = p.blocks[key];
-      [f.top, f.side, f.bottom].forEach((hex, kind) => {
+      const kinds = key === 'grass' ? grassFaces(p, grassStyle) : [f.top, f.side, f.bottom, f.side];
+      kinds.forEach((hex, kind) => {
         c.setHex(hex); // sRGB -> linear
-        const i = (m * 3 + kind) * 3;
+        const i = (m * COLOR_KINDS + kind) * 3;
         t[i] = c.r;
         t[i + 1] = c.g;
         t[i + 2] = c.b;

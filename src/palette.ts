@@ -83,3 +83,30 @@ export const PALETTES: Record<string, Palette> = {
 };
 
 export type PaletteKey = keyof typeof PALETTES;
+
+/**
+ * How grass blocks look from the side. 'classic' (green sides over soil) reads
+ * too much like a certain blocky game, so the alternatives move away from it.
+ */
+export const GRASS_STYLES = {
+  'Moss drip': 'drip',
+  'Top cap only': 'cap',
+  'Sage moss': 'sage',
+  'Classic (too familiar)': 'classic',
+} as const;
+export type GrassStyle = (typeof GRASS_STYLES)[keyof typeof GRASS_STYLES];
+
+/** Returns [top, sideUpper, bottom, sideLower] for grass under a given style. */
+export function grassFaces(p: Palette, style: GrassStyle): [number, number, number, number] {
+  const g = p.blocks.grass, soil = p.blocks.soil;
+  switch (style) {
+    case 'classic':
+      return [g.top, g.side, g.bottom, g.side];
+    case 'cap':
+      return [g.top, soil.side, g.bottom, soil.side];
+    case 'drip':
+      return [g.top, g.side, g.bottom, soil.side];
+    case 'sage':
+      return [0xa9d8c0, 0x93c6b2, g.bottom, soil.side];
+  }
+}

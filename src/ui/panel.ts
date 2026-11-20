@@ -1,8 +1,11 @@
 import { Pane } from 'tweakpane';
-import { PALETTES } from '../palette';
+import { GRASS_STYLES, PALETTES, type GrassStyle } from '../palette';
+import { HOTBAR_STYLES, type HotbarStyle } from './hotbar';
 
 export interface Settings {
   palette: string;
+  grassStyle: GrassStyle;
+  hotbarStyle: HotbarStyle;
   ao: boolean;
   aoStrength: number;
   jitter: number;
@@ -17,10 +20,12 @@ export interface Stats {
   frameMs: number;
   triangles: number;
   remeshMs: number;
+  undersideMs: number;
 }
 
 export interface PanelHandlers {
   onPalette(): void;
+  onHotbarStyle(): void;
   onMeshOptions(): void;
   onJitter(): void;
   onShadows(): void;
@@ -38,10 +43,13 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   perf.addBinding(stats, 'frameMs', { readonly: true, format: (v: number) => v.toFixed(2), label: 'frame ms' });
   perf.addBinding(stats, 'triangles', { readonly: true, format: (v: number) => v.toFixed(0), label: 'triangles' });
   perf.addBinding(stats, 'remeshMs', { readonly: true, format: (v: number) => v.toFixed(2), label: 'remesh ms' });
+  perf.addBinding(stats, 'undersideMs', { readonly: true, format: (v: number) => v.toFixed(1), label: 'underside ms' });
 
   const look = pane.addFolder({ title: 'Look' });
   const paletteOptions = Object.fromEntries(Object.entries(PALETTES).map(([k, p]) => [p.name, k]));
   look.addBinding(settings, 'palette', { options: paletteOptions }).on('change', h.onPalette);
+  look.addBinding(settings, 'grassStyle', { label: 'grass', options: GRASS_STYLES }).on('change', h.onPalette);
+  look.addBinding(settings, 'hotbarStyle', { label: 'hotbar', options: HOTBAR_STYLES }).on('change', h.onHotbarStyle);
   look.addBinding(settings, 'ao', { label: 'AO' }).on('change', h.onMeshOptions);
   look.addBinding(settings, 'aoStrength', { label: 'AO strength', min: 0, max: 0.8, step: 0.01 }).on('change', h.onMeshOptions);
   look.addBinding(settings, 'jitter', { label: 'block jitter', min: 0, max: 0.25, step: 0.005 }).on('change', h.onJitter);

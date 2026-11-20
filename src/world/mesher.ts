@@ -18,14 +18,19 @@ export interface MeshData {
 }
 
 export interface MeshOptions {
-  /** Linear RGB per (material, face kind): index = (mat * 3 + kind) * 3, kind 0 top, 1 side, 2 bottom. */
+  /**
+   * Linear RGB per (material, face kind): index = (mat * 4 + kind) * 3.
+   * Kinds: 0 top, 1 side (upper edge), 2 bottom, 3 side (lower edge).
+   * Sides blend from kind 1 at the top to kind 3 at the bottom.
+   */
   colorTable: Float32Array;
   /** Brightness for AO levels 0 (most occluded) .. 3 (open). */
   aoCurve: [number, number, number, number];
   ao: boolean;
 }
 
-export const COLOR_TABLE_SIZE = MAT_COUNT * 3 * 3;
+export const COLOR_KINDS = 4;
+export const COLOR_TABLE_SIZE = MAT_COUNT * COLOR_KINDS * 3;
 
 /** How far the water surface sits below the top of its voxel. */
 const WATER_DROP = 0.12;
@@ -181,11 +186,13 @@ function emit(
 ): void {
   const mat = key & 15;
   const back = (key >> 4) & 1;
-  const kind = d === 1 ? (back ? 2 : 0) : 1;
-  const ci = (mat * 3 + kind) * 3;
-  const r = waterPass ? 1 : opts.colorTable[ci];
-  const g = waterPass ? 1 : opts.colorTable[ci + 1];
-  const b = waterPass ? 1 : opts.colorTable[ci + 2];
+  const side = d !== 1;
+  const kind = side ? 1 : back ? 2 : 0;
+  const ci = (mat * COLOR_KINDS + kind) * 3;
+  const cb = (mat * COLOR_KINDS + 3) * 3; // lower edge of side faces
+  const t = opts.colorTable;
+  // Height runs along u when d = 0 (u = y) and along v when d = 2 (v = y).
+  const minY = u === 1 ? u0 : v0;
   const planePos = waterPass && d === 1 && !back ? plane - WATER_DROP : plane;
   const sign = back ? -1 : 1;
   const base = out.pos.length / 3;
@@ -200,7 +207,11 @@ function emit(
     out.pos.push(p[0], p[1], p[2]);
     out.nrm.push(nrm[0], nrm[1], nrm[2]);
     const f = opts.ao && !waterPass ? opts.aoCurve[ao[k]] : 1;
-    out.col.push(r * f, g * f, b * f);
+    if (waterPass) out.col.push(1, 1, 1);
+    else {
+      const c = side && p[1] === minY ? cb : ci;
+      out.col.push(t[c] * f, t[c + 1] * f, t[c + 2] * f);
+    }
   }
 
   // Split along the brighter diagonal so AO doesn't streak.

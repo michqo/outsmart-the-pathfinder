@@ -16,6 +16,13 @@ export function voxelIndex(x: number, y: number, z: number): number {
   return x + z * SX + y * SX * SZ;
 }
 
+export function voxelCoords(i: number): [number, number, number] {
+  const x = i % SX;
+  const z = Math.floor(i / SX) % SZ;
+  const y = Math.floor(i / (SX * SZ));
+  return [x, y, z];
+}
+
 export function chunkIndex(cx: number, cy: number, cz: number): number {
   return cx + cz * CX + cy * CX * CZ;
 }

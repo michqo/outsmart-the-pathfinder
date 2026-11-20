@@ -58,17 +58,19 @@ Still OPEN (asked when we get there): the final name, the bot model variants (M2
 
 ## M1 — Editor (target: sculpt the island)
 
-- [ ] `edit/pick.ts`: DDA voxel raycast from the cursor (hit voxel + face normal). No three.js raycaster over meshes
-- [ ] A hover highlight: a soft outline cube on the target block, a ghost block on the placement face
-- [ ] Place / remove: left/right-click **and** a toggle key (`E` = place, `R` = remove) for the trackpad. Two-finger click = remove
-- [ ] Orbit/edit conflict: orbit on drag, edit on click (a movement threshold), or hold `Alt` to orbit. Settle this live
-- [ ] Hotbar: an original-looking material picker (rounded pastel chips, number keys 1–6). **2 style variants**
-- [ ] Fill tool: Shift + drag → box preview → release to fill or clear
-- [ ] Rebuild only the touched chunk(s), plus neighbor chunks when an edit sits on a chunk border (AO and face culling depend on neighbors)
-- [ ] Undo/redo (Cmd+Z / Shift+Cmd+Z): a cheap edit-diff stack. It makes building courses far nicer
-- [ ] Island underside polish: the stalactites follow the edited silhouette loosely (regenerate on demand, not every edit)
-- [ ] Double-click to focus the camera on a point
-- [ ] **Check:** edits are hitch-free (measure the chunk rebuild time in Tweakpane), screenshot → commit `M1`
+- [x] `edit/pick.ts`: DDA voxel raycast from the cursor (hit voxel + face normal). No three.js raycaster over meshes
+- [x] A hover highlight: a soft outline cube on the target block, a ghost block on the placement face
+- [x] Place / remove: left/right-click **and** a toggle key (`E` = place, `R` = remove) for the trackpad. Two-finger click = remove
+- [x] Orbit/edit conflict: settled as click = edit, drag = orbit (6 px / 450 ms threshold). Shift claims the drag for the fill tool
+- [x] Hotbar: an original-looking material picker (rounded pastel chips, number keys 1–6). **2 style variants**
+- [x] Fill tool: Shift + drag → a flat rectangle on the start layer (Shift+⌥ = a vertical wall) → release to fill, right-button to clear. Capped at 24k voxels
+- [x] Rebuild only the touched chunk(s), plus neighbor chunks when an edit sits on a chunk border (AO and face culling depend on neighbors)
+- [x] Undo/redo (Cmd+Z / Shift+Cmd+Z): a cheap edit-diff stack. It makes building courses far nicer
+- [x] Island underside: rebuilt 600 ms after editing pauses (~8 ms). Moving it off the main thread is a later option
+- [x] Focus the camera on a point: **F or ⌥-click** instead of double-click, because a double-click would also place two blocks
+- [x] Grass-side variants (Moss drip default, Top cap, Sage moss, Classic) to move away from the familiar grass-block look
+- [x] Player-facing material names: Moss, Clay, Slate, Crystal, Water
+- [x] **Check:** done 2026-11-20, single edits remesh in ~1 ms. Hotbar and grass style picks pending — edits are hitch-free (measure the chunk rebuild time in Tweakpane), screenshot → commit `M1`
 
 ## M2 — Walking bot (target: the 10-second wow)
 
