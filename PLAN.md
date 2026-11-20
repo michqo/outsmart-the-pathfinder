@@ -25,7 +25,7 @@ Tick the boxes as we go. Every milestone ends with: browser check → screenshot
 | Tests | **Vitest from M2** (heap, A\*, the 4 basic moves). Every move rule gets tests in M3 |
 | Plan location | This file |
 
-Still OPEN (asked when we get there): the final name, the bot model variants (M2).
+Still OPEN (asked when we get there): the final name.
 
 ---
 
@@ -93,7 +93,7 @@ Still OPEN (asked when we get there): the final name, the bot model variants (M2
 - [x] Draggable start (the robot) and goal (a floating star-seed over a landing ring), snapped to standable cells
 - [x] `Space` = run. Minimal HUD: nodes expanded, path length, path cost, search ms
 - [x] Stress level (Debug → 9 stacked floors). A walled-off goal forces the full search: 35.7k nodes in 21.7 ms of worker time, no main-thread long tasks, playback under 0.1 ms per frame
-- [x] **Check:** done 2026-11-20. Robot model pick pending (Capsule / Boxy / Bulb) — with a search of ~50k nodes the frame time stays flat (Tweakpane graph), screenshot/GIF → commit `M2`
+- [x] **Check:** done 2026-11-20. Robot: **Capsule** (picked 2026-11-20) — with a search of ~50k nodes the frame time stays flat (Tweakpane graph), screenshot/GIF → commit `M2`
 
 ### ⏸ Reassess after M2
 Review together: the look, the feel, performance, and whether the move-rule approach still makes sense. Then refine M3+.
