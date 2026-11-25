@@ -19,7 +19,7 @@ const CSS = /* css */ `
 
 export interface CornerHandlers {
   onRun(): void;
-  onHelp(): void;
+  onHelp(opener: HTMLButtonElement): void;
   onMute(muted: boolean): void;
 }
 
@@ -42,14 +42,13 @@ export class Corner {
     this.mute = el.querySelector('.mute')!;
     this.setMuted(muted);
     this.run.onclick = () => h.onRun();
-    (el.querySelector('.help') as HTMLButtonElement).onclick = () => h.onHelp();
+    const help = el.querySelector<HTMLButtonElement>('.help')!;
+    help.onclick = () => h.onHelp(help);
     this.mute.onclick = () => {
       const m = this.mute.dataset.muted !== '1';
       this.setMuted(m);
       h.onMute(m);
     };
-    // Buttons shouldn't keep focus (Space would click them again instead of running).
-    for (const b of el.querySelectorAll('button')) b.addEventListener('pointerup', () => b.blur());
   }
 
   setMuted(m: boolean): void {

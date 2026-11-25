@@ -1,4 +1,5 @@
 import { CHARACTERS, characterInfo } from '../render/characters';
+import { ignoreGameShortcut, showModal } from './modal';
 
 const CSS = /* css */ `
 .cp-open { position: fixed; left: 12px; top: 12px; z-index: 20; display: flex; align-items: center; gap: 8px;
@@ -8,9 +9,6 @@ const CSS = /* css */ `
 .cp-open:hover { background: #fff; }
 @media (max-width: 720px) { .cp-open { left: 10px; top: 10px; padding: 5px; font-size: 0; gap: 0; } }
 .cp-open img, .cp-open .ph { width: 30px; height: 30px; border-radius: 9px; background: #e9e4f3; object-fit: cover; }
-.cp-back { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #1d1a2c73;
-  opacity: 0; transition: opacity .2s; }
-.cp-back.show { opacity: 1; }
 .cp { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column;
   border-radius: 22px; background: #fbf9ff; box-shadow: 0 24px 80px #1d1a2c55;
   font: 600 13px/1.3 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; color: #2f2a45; }
@@ -50,7 +48,7 @@ export function storedCharacter(): string | null {
 export class CharacterPicker {
   private button: HTMLButtonElement;
   private thumbs = new Map<string, string>();
-  private back: HTMLDivElement | null = null;
+  private back: HTMLDialogElement | null = null;
 
   constructor(
     private current: string,
@@ -64,14 +62,11 @@ export class CharacterPicker {
     this.button = document.createElement('button');
     this.button.className = 'cp-open';
     this.button.title = 'Choose character (C)';
-    this.button.addEventListener('click', () => this.open());
+    this.button.addEventListener('click', () => this.open(this.button));
     document.body.appendChild(this.button);
     this.renderButton();
-    setTimeout(() => this.startThumbs(), 300); // fills the HUD button's picture too
     window.addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement) return;
-      if (e.code === 'KeyC' && !e.metaKey && !e.ctrlKey && !this.back) this.open();
-      else if ((e.code === 'Escape' || e.code === 'Enter') && this.back) this.close();
+      if (e.code === 'KeyC' && !e.metaKey && !e.ctrlKey && !ignoreGameShortcut(e)) this.open();
     });
   }
 
@@ -106,13 +101,13 @@ export class CharacterPicker {
     this.button.replaceChildren(this.visual(this.current), document.createTextNode(characterInfo(this.current).name));
   }
 
-  open(): void {
+  open(opener?: HTMLElement): void {
     if (this.back) return;
-    this.startThumbs();
-    const back = document.createElement('div');
+    const back = (this.back = document.createElement('dialog'));
     back.className = 'cp-back';
+    back.setAttribute('aria-labelledby', 'cp-title');
     back.innerHTML = `
-      <div class="cp" role="dialog" aria-modal="true" aria-labelledby="cp-title">
+      <div class="cp">
         <header><h2 id="cp-title">Choose your pathfinder</h2>
           <p>Same brain, different look. It digs, builds and swims just the same.</p></header>
         <div class="grid"></div>
@@ -123,36 +118,33 @@ export class CharacterPicker {
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'card' + (c.id === this.current ? ' on' : '');
+      card.autofocus = c.id === this.current;
+      card.setAttribute('aria-pressed', String(c.id === this.current));
       card.dataset.id = c.id;
       card.append(this.visual(c.id), document.createTextNode(c.name));
       card.addEventListener('click', () => this.pick(c.id));
-      card.addEventListener('dblclick', () => this.close());
+      card.addEventListener('dblclick', () => back.close());
       grid.appendChild(card);
     }
-    back.querySelector('footer button')!.addEventListener('click', () => this.close());
-    back.addEventListener('pointerdown', (e) => e.target === back && this.close());
-    document.body.appendChild(back);
-    setTimeout(() => back.classList.add('show'), 16); // (not rAF: it stalls in background tabs)
-    this.back = back;
-    back.querySelector<HTMLElement>('.card.on')?.focus();
-  }
-
-  close(): void {
-    const back = this.back;
-    if (!back) return;
-    this.back = null;
-    back.classList.remove('show');
-    setTimeout(() => back.remove(), 200);
-    try {
-      localStorage.setItem(STORE_KEY, this.current);
-    } catch {
-      /* private mode: the choice just isn't remembered */
-    }
+    back.querySelector('footer button')!.addEventListener('click', () => back.close());
+    showModal(back, () => {
+      this.back = null;
+      try {
+        localStorage.setItem(STORE_KEY, this.current);
+      } catch {
+        /* private mode: the choice just isn't remembered */
+      }
+    }, opener);
+    this.startThumbs();
   }
 
   private pick(id: string): void {
     this.current = id;
-    this.back?.querySelectorAll('.card').forEach((c) => c.classList.toggle('on', (c as HTMLElement).dataset.id === id));
+    this.back?.querySelectorAll<HTMLElement>('.card').forEach((c) => {
+      const selected = c.dataset.id === id;
+      c.classList.toggle('on', selected);
+      c.setAttribute('aria-pressed', String(selected));
+    });
     this.renderButton();
     this.onPick(id);
   }

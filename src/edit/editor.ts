@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Stage } from '../render/scene';
+import { ignoreGameShortcut } from '../ui/modal';
 import { Mat } from '../world/materials';
 import { inBounds, SX, SY, SZ, type World } from '../world/world';
 import type { EditHistory } from './history';
@@ -194,7 +195,7 @@ export class Editor {
   };
 
   private onKey = (e: KeyboardEvent): void => {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (ignoreGameShortcut(e)) return;
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();

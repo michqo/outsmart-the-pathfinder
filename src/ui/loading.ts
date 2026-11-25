@@ -9,6 +9,12 @@ export class LoadingScreen {
     if (this.msg) this.msg.textContent = message;
   }
 
+  fail(message: string): void {
+    if (!this.root || !this.msg) return;
+    this.root.classList.add('failed');
+    this.msg.textContent = message;
+  }
+
   /** Fades out, then removes the overlay. */
   done(): Promise<void> {
     const root = this.root;
@@ -23,3 +29,5 @@ export class LoadingScreen {
     );
   }
 }
+
+export class WebGLUnavailableError extends Error {}

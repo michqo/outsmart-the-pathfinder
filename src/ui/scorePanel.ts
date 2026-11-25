@@ -1,4 +1,5 @@
 import { starsFor, type Level } from '../levels/levels';
+import { showModal } from './modal';
 
 const CSS = /* css */ `
 .sp { position: fixed; left: 12px; top: 104px; z-index: 20; width: 248px; padding: 14px 16px 12px; border-radius: 18px;
@@ -53,10 +54,7 @@ const CSS = /* css */ `
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
 .sp-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
-.lvd-back { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #1d1a2c73;
-  opacity: 0; transition: opacity .2s; }
-.lvd-back.show { opacity: 1; }
-.lvd { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; padding: 20px 24px 18px;
+.lvd { box-sizing: border-box; width: min(688px, calc(100vw - 32px)); max-height: calc(100% - 48px); overflow-y: auto; padding: 20px 24px 18px;
   border-radius: 22px; background: #fbf9ff; box-shadow: 0 24px 80px #1d1a2c55;
   font: 600 13px/1.3 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; color: #2f2a45; }
 .lvd h2 { margin: 0 0 4px; font-size: 21px; }
@@ -74,7 +72,7 @@ const CSS = /* css */ `
 `;
 
 export interface ScorePanelHandlers {
-  onLevels(): void;
+  onLevels(opener: HTMLButtonElement): void;
   onShare(): void;
   onReset(): void;
   onWeight(w: number): void;
@@ -117,7 +115,8 @@ export class ScorePanel {
       const min = this.el.classList.toggle('min');
       this.q('.tog').textContent = min ? '▾' : '▴';
     };
-    this.q('.levels').onclick = () => h.onLevels();
+    const levels = this.q<HTMLButtonElement>('.levels');
+    levels.onclick = () => h.onLevels(levels);
     this.q('.reset').onclick = () => h.onReset();
     this.q('.share').onclick = () => h.onShare();
     const range = this.q<HTMLInputElement>('.weight input');
@@ -125,10 +124,6 @@ export class ScorePanel {
       this.q('.wv').textContent = Number(range.value).toFixed(1);
       h.onWeight(Number(range.value));
     };
-    // Keep Space / number keys for the game, not the slider.
-    range.addEventListener('keydown', (e) => e.preventDefault());
-    for (const b of this.el.querySelectorAll('button')) b.addEventListener('keyup', (e) => e.preventDefault());
-    this.el.addEventListener('pointerup', () => (document.activeElement as HTMLElement | null)?.blur?.());
   }
 
   /** A level was loaded. `dare` is a friend's score from a share link (0 = none). */
@@ -141,6 +136,7 @@ export class ScorePanel {
     this.q('.lvhint').textContent = level.hint;
     this.q('.nodes').textContent = '–';
     this.q('.score').classList.remove('miss');
+    this.q('.unit').textContent = 'nodes';
     this.q('.unit').hidden = false;
     this.q('.note').textContent = '';
     this.renderBest();
@@ -165,17 +161,17 @@ export class ScorePanel {
     this.q('.weight').classList.toggle('locked', !editable);
   }
 
-  /** A run ended. Only arrivals score. */
-  setResult(arrived: boolean, nodes: number, newBest: boolean): void {
+  setResult(arrived: boolean, nodes: number, newBest: boolean, practice: boolean): void {
     const score = this.q('.score');
     score.classList.toggle('miss', !arrived);
     this.q('.unit').hidden = !arrived;
+    this.q('.unit').textContent = practice ? 'nodes · practice' : 'nodes';
     this.q('.nodes').textContent = arrived ? fmt(nodes) : "No path — doesn't count";
     if (arrived && newBest) this.best = nodes;
     this.q('.note').innerHTML = arrived && newBest ? '<span class="new">New best!</span>' : '';
     this.renderBest();
     this.renderStars();
-    this.renderDare(arrived && this.dare > 0 && nodes > this.dare);
+    this.renderDare(arrived && !practice && this.dare > 0 && nodes > this.dare);
   }
 
   toast(msg: string): void {
@@ -215,37 +211,29 @@ export function openLevelsDialog(
   best: Record<string, number>,
   current: string,
   onPick: (level: Level) => void,
+  opener?: HTMLElement,
 ): void {
-  const back = document.createElement('div');
+  const back = document.createElement('dialog');
   back.className = 'lvd-back';
+  back.setAttribute('aria-labelledby', 'lvd-title');
   const card = (l: Level, i: number | null) => {
     const got = starsFor(l, best[l.id] ?? 0);
     const stars = l.stars ? `<span class="s">${'★'.repeat(got)}<span class="off">${'★'.repeat(3 - got)}</span></span>` : '';
     const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : 'No limits';
-    return `<button class="card${l.id === current ? ' on' : ''}" data-id="${l.id}">
+    return `<button class="card${l.id === current ? ' on' : ''}" data-id="${l.id}"${l.id === current ? ' autofocus' : ''}>
       ${i !== null ? `<span class="n">Level ${i + 1}</span>` : ''}<b>${l.name}</b>${stars}<small>${sub}</small></button>`;
   };
-  back.innerHTML = `<div class="lvd" role="dialog" aria-label="Levels">
-    <h2>Levels</h2><p>Make the bot think as hard as you can. Only runs where it reaches the flag count.</p>
+  back.innerHTML = `<div class="lvd">
+    <h2 id="lvd-title">Levels</h2><p>Make the bot think as hard as you can. For challenge stars, reach the flag without editing during the run.</p>
     <h3>Challenges</h3><div class="list">${levels.map((l, i) => card(l, i)).join('')}</div>
     <h3>Sandbox</h3><div class="list">${sandboxes.map((l) => card(l, null)).join('')}</div></div>`;
-  document.body.appendChild(back);
-  setTimeout(() => back.classList.add('show'), 0);
-  const close = () => {
-    back.classList.remove('show');
-    window.removeEventListener('keydown', onKey, true);
-    setTimeout(() => back.remove(), 200);
-  };
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') (e.stopPropagation(), close());
-  };
-  window.addEventListener('keydown', onKey, true);
   back.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.card');
     if (btn) {
       const l = [...levels, ...sandboxes].find((x) => x.id === btn.dataset.id)!;
-      close();
+      back.close();
       onPick(l);
-    } else if (e.target === back) close();
+    }
   });
+  showModal(back, undefined, opener);
 }

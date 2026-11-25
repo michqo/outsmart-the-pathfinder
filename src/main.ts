@@ -24,6 +24,7 @@ import { loadAssets, type Assets } from './render/assets';
 import { PostFX } from './render/post';
 import { FollowCam } from './render/followCam';
 import { LoadingScreen } from './ui/loading';
+import { ignoreGameShortcut } from './ui/modal';
 import { CharacterPicker, storedCharacter } from './ui/characterPicker';
 import { renderThumbnails } from './render/characters';
 import { BotView } from './render/bot';
@@ -119,7 +120,7 @@ const bot = new BotController(
     blocks: settings.inventory,
     colorOf,
     onWorldChanged: () => scheduleUnderside(),
-    onRunEnd: (arrived, nodes) => onRunEnd(arrived, nodes),
+    onRunEnd: (arrived, nodes, edited) => onRunEnd(arrived, nodes, edited),
     onSound: (s) => sfx.play(s),
   },
   spawn.start,
@@ -237,22 +238,19 @@ function applyMeshOptions(): void {
 applyQuality();
 applyPalette();
 
-const loading = new LoadingScreen();
-loading.progress(0.02, 'Loading textures…');
-loadAssets((done, total) => loading.progress((done / total) * 0.85, `Loading textures… ${done}/${total}`))
-  .then(async (a) => {
-    assets = a;
+function upgradeTerrain(): void {
+  void loadAssets().then((a) => {
     terrain = createTerrainMaterial(a, voxels, sky.cloud, stage.island.position);
     water = createWaterMaterial();
+    assets = a;
     applyQuality();
     applyPalette();
-    chunks.update();
-    loading.progress(0.92, 'Compiling shaders…');
-    // Compile every program now, so the first visible frames don't hitch.
-    await stage.renderer.compileAsync(stage.scene, stage.camera);
-  })
-  .catch((err) => console.error('Realistic assets failed to load; staying stylised.', err))
-  .finally(() => loading.done().then(() => onLoaded()));
+  }).catch((err) => {
+    console.error('Realistic terrain failed to load; keeping stylised graphics.', err);
+    assets = null;
+    applyPalette();
+  });
+}
 
 /** Runs once the loading screen is gone: the character picker (shown on a first visit). */
 function onLoaded(): void {
@@ -278,7 +276,7 @@ function onLoaded(): void {
 const howTo = new HowTo();
 const corner = new Corner(sfx.muted, {
   onRun: () => bot.run(),
-  onHelp: () => howTo.open(),
+  onHelp: (opener) => howTo.open(undefined, opener),
   onMute: (m) => sfx.setMuted(m),
 });
 let wasBusy = false;
@@ -346,11 +344,11 @@ let lastScore = 0;
 let sandboxBest = 0;
 
 const score = new ScorePanel({
-  onLevels: () =>
+  onLevels: (opener) =>
     openLevelsDialog(LEVELS, SANDBOXES, bestScores(), course.level.id, (l) => {
       clearHash();
       startLevel(l);
-    }),
+    }, opener),
   onReset: () => applyCourse(course),
   onShare: () => void share(),
   onWeight: (w) => {
@@ -382,14 +380,17 @@ function countEdits(cells: number[]): boolean {
   return true;
 }
 
-function onRunEnd(arrived: boolean, nodes: number): void {
+function onRunEnd(arrived: boolean, nodes: number, edited: boolean): void {
   const { level } = course;
+  const practice = level.budget !== null && edited;
   let newBest = false;
-  if (arrived && level.budget !== null) newBest = recordScore(level.id, nodes);
-  else if (arrived && nodes > sandboxBest) (sandboxBest = nodes), (newBest = true);
-  if (arrived) lastScore = nodes;
+  if (arrived && !practice) {
+    if (level.budget !== null) newBest = recordScore(level.id, nodes);
+    else if (nodes > sandboxBest) (sandboxBest = nodes), (newBest = true);
+    lastScore = nodes;
+  }
   if (newBest) sfx.play('best');
-  score.setResult(arrived, nodes, newBest);
+  score.setResult(arrived, nodes, newBest, practice);
 }
 
 function startLevel(level: Level, dare = 0): void {
@@ -483,10 +484,9 @@ void openSharedCourse();
 window.addEventListener('hashchange', () => void openSharedCourse());
 
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Space' || e.target instanceof HTMLInputElement) return;
+  if (e.code !== 'Space' || ignoreGameShortcut(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
   e.preventDefault();
-  (document.activeElement as HTMLElement | null)?.blur?.();
-  bot.run();
+  if (!e.repeat) bot.run();
 });
 
 // Dev-only handle for poking at the scene from the console.
@@ -499,6 +499,8 @@ let frames = 0;
 let fpsTimer = 0;
 let frameMsAcc = 0;
 
+const loading = new LoadingScreen();
+let firstFrame = true;
 stage.renderer.setAnimationLoop((time) => {
   const t0 = performance.now();
   timer.update(time);
@@ -518,6 +520,14 @@ stage.renderer.setAnimationLoop((time) => {
   if (water) water.time.value = t;
   if (settings.quality === 'high') post.render(dt);
   else stage.renderer.render(stage.scene, stage.camera);
+
+  if (firstFrame) {
+    firstFrame = false;
+    void loading.done().then(() => {
+      onLoaded();
+      upgradeTerrain();
+    });
+  }
 
   frames++;
   fpsTimer += dt;

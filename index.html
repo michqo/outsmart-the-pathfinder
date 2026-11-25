@@ -13,12 +13,17 @@
       html, body { margin: 0; height: 100%; overflow: hidden; background: #fff4e0; }
       canvas { display: block; touch-action: none; }
       @media (max-width: 720px) { .tp-dfwv { display: none !important; } }
+      .game-dialog { inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; box-sizing: border-box;
+        margin: 0; padding: 0; border: 0; background: transparent; color: inherit; }
+      .game-dialog[open] { display: grid; place-items: center; }
+      .game-dialog::backdrop { background: #1d1a2c73; }
+      .game-dialog :focus-visible { outline: 2px solid #5542c5; outline-offset: 3px; }
       #loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center;
         background: radial-gradient(ellipse at 50% 40%, #e9f2fb 0%, #bcd3ea 55%, #8fa9c8 100%);
         font: 600 14px/1.3 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; color: #2f3550;
         transition: opacity .6s ease, visibility .6s; }
       #loading.done { opacity: 0; visibility: hidden; }
-      #loading .card { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+      #loading .card { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; text-align: center; }
       #loading h1 { margin: 0; font-size: 30px; letter-spacing: -.01em; }
       #loading .isle { width: 64px; height: 64px; position: relative; animation: float 2.4s ease-in-out infinite; }
       #loading .isle i { position: absolute; width: 20px; height: 20px; border-radius: 4px; }
@@ -33,6 +38,9 @@
       #loading .bar { width: 240px; height: 8px; border-radius: 4px; background: #ffffff80; overflow: hidden; }
       #loading .bar b { display: block; height: 100%; width: 0; border-radius: 4px; background: #3b3355; transition: width .25s ease; }
       #loading .msg { font-size: 12px; opacity: .65; min-height: 1.3em; }
+      #loading.failed .bar { display: none; }
+      #loading.failed .isle, #loading.failed .isle i { animation: none; }
+      #loading.failed .msg { max-width: 36ch; font-size: 15px; opacity: 1; }
     </style>
   </head>
   <body>
@@ -41,9 +49,9 @@
         <div class="isle"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <h1>Outsmart the Pathfinder</h1>
         <div class="bar"><b></b></div>
-        <div class="msg">Loading…</div>
+        <div class="msg" role="status">Loading…</div>
       </div>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/bootstrap.ts"></script>
   </body>
 </html>

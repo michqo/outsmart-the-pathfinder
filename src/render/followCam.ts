@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ignoreGameShortcut } from '../ui/modal';
 import type { Stage } from './scene';
 
 const CSS = /* css */ `
@@ -40,7 +41,7 @@ export class FollowCam {
     this.button.addEventListener('click', () => this.toggle());
     document.body.appendChild(this.button);
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyV' && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement)) this.toggle();
+      if (e.code === 'KeyV' && !e.metaKey && !e.ctrlKey && !ignoreGameShortcut(e)) this.toggle();
     });
     this.render();
   }

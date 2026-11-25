@@ -140,6 +140,14 @@ Review together: the look, the feel, performance, and whether the move-rule appr
 - **M6 — Polish + deploy:** ✅ done 2026-11-25 (deploy pending: GitHub repo + Vercel by the owner). Final name kept: **Outsmart the Pathfinder**. 3-card how-to-play on first visit (then the character picker), reopen with ? / H. WebAudio synth blips (place, remove, search ticks, dig, pop, bonk, arrive, stuck, new best, denied) with a remembered mute. Run / ? / mute corner buttons, undo in the hotbar. Touch: tap to place, a second finger cancels the tap (pinch/pan), phone layout (compact HUD on top, collapsible score panel, swatch-only hotbar, Tweakpane hidden), portrait camera fit. Textures recompressed (8.9 → 4.3 MB), three.js split into its own chunk, meta tags + SVG favicon, README.
 - **Ground + sky pass** (2026-11-25): the rock under the island hangs from each corner's highest column bottom, which closes the see-through gaps at the ragged rim (`tests/underside.test.ts` fires rays at the pockets under every level, plus an edited island). The rock uses the stone's palette blend. Realistic sky: a clear-sky gradient measured from the HDRI, a sun glow, and a drifting procedural cloud layer (wind + cover sliders). The same clouds cast moving shadows on the terrain (direct light plus most of the image-based light), and a sunlit sea of clouds lies below the island.
 
+### M6 release checks
+
+- [x] Challenge edits during a run make it practice-only, even if undone; live replanning still works.
+- [x] Show recovery instructions if WebGL 2 is unavailable. Render the playable stylised island before loading realistic textures, and defer thumbnails until the character picker opens.
+- [x] Keep focus in onboarding, character and level dialogs; restore focus when they close and preserve the A* slider's native keyboard controls.
+- [ ] Deploy a Vercel Preview (Vite, Node.js 24.x, `npm run build`, `dist`).
+- [ ] Smoke-test first visit, touch input, live replanning, score persistence and both share link types on desktop Chrome and real iPhone Safari. Promote, then repeat the smoke check on production.
+
 ## Risks & mitigations
 
 | Risk | Mitigation |

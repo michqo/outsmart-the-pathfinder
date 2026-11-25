@@ -34,8 +34,8 @@ export interface ControllerOptions {
   colorOf(m: Mat): number;
   /** The bot changed the world (dug / placed / restored). */
   onWorldChanged(): void;
-  /** A run ended: did the bot arrive, and how many nodes it expanded in all (replans included). */
-  onRunEnd?(arrived: boolean, nodes: number): void;
+  /** Nodes include replans. Edits during the run make a challenge result practice only. */
+  onRunEnd?(arrived: boolean, nodes: number, edited: boolean): void;
   /** Something worth a sound happened. */
   onSound?(s: Sound): void;
 }
@@ -79,6 +79,7 @@ export class BotController {
   private replans = 0;
   /** Nodes expanded over every search of this run. */
   private runNodes = 0;
+  private editedDuringRun = false;
   /** True from the first step of a run until it ends (drives the follow camera). */
   private running = false;
   private ghostTimer = 0;
@@ -140,6 +141,7 @@ export class BotController {
     this.at = this.home;
     this.blocksLeft = this.blocksTotal;
     this.dug = this.built = this.replans = this.runNodes = 0;
+    this.editedDuringRun = false;
     this.placeIdle();
     this.faceGoal();
     this.search(this.home, 'searching');
@@ -185,6 +187,7 @@ export class BotController {
    *    rethink when it reaches the next cell.
    */
   onWorldEdit(cells: number[] = []): void {
+    if (this.busy && cells.length > 0) this.editedDuringRun = true;
     if (this.phase === 'searching' || this.phase === 'revealing') {
       this.search(this.searchFrom, this.searchStatus);
       return;
@@ -300,7 +303,7 @@ export class BotController {
         this.hud.setStatus('stuck');
         this.opts.onSound?.('stuck');
         if (this.ghost.group.children.length) this.ghostTimer = 0.8;
-        this.opts.onRunEnd?.(false, this.runNodes);
+        this.opts.onRunEnd?.(false, this.runNodes, this.editedDuringRun);
       }
     }
     if (this.phase === 'path') {
@@ -484,7 +487,7 @@ export class BotController {
     this.hud.setStatus('happy');
     this.ribbon.fade(0.35);
     this.opts.onSound?.('arrive');
-    this.opts.onRunEnd?.(true, this.runNodes);
+    this.opts.onRunEnd?.(true, this.runNodes, this.editedDuringRun);
   }
 
   // ---------------------------------------------------------------- helpers

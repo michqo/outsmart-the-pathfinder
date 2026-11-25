@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { WebGLUnavailableError } from '../ui/loading';
 import { SX, SZ } from '../world/world';
 
 export interface Stage {
@@ -25,7 +26,10 @@ function fitFov(camera: THREE.PerspectiveCamera): void {
 }
 
 export function createStage(): Stage {
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('webgl2', { antialias: true, alpha: false, stencil: false });
+  if (!context) throw new WebGLUnavailableError('Could not create a WebGL 2 context');
+  const renderer = new THREE.WebGLRenderer({ canvas, context });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;

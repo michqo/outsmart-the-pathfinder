@@ -1,11 +1,10 @@
+import { ignoreGameShortcut, showModal } from './modal';
+
 const CSS = /* css */ `
-.ht-back { position: fixed; inset: 0; z-index: 1001; display: grid; place-items: center; background: #1d1a2c73;
-  opacity: 0; transition: opacity .2s; }
-.ht-back.show { opacity: 1; }
-.ht { width: min(460px, calc(100vw - 32px)); padding: 22px 24px 18px; border-radius: 22px; background: #fbf9ff;
+.ht { box-sizing: border-box; width: min(508px, calc(100vw - 32px)); max-height: calc(100% - 32px); overflow: auto;
+  padding: 22px 24px 18px; border-radius: 22px; background: #fbf9ff;
   box-shadow: 0 24px 80px #1d1a2c55; font: 600 14px/1.4 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; color: #2f2a45;
-  transform: translateY(8px); transition: transform .25s; }
-.ht-back.show .ht { transform: none; }
+}
 .ht .step { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .45; }
 .ht h2 { margin: 4px 0 8px; font-size: 22px; }
 .ht .art { display: grid; place-items: center; height: 120px; margin: 6px 0 12px; border-radius: 16px;
@@ -59,23 +58,22 @@ const CARDS: Card[] = [
     art: '▶ ★★★',
     body: () =>
       `<p>Press <b>${touch() ? 'Run' : 'Space'}</b> and the bot searches, then walks the path. Edit while it walks and it has to rethink.</p>
-       <p>Each challenge gives you a limited number of edits and three star targets. Beat your best, then <b>Copy link</b> to dare a friend.</p>`,
+       <p>Each challenge gives you a limited number of edits and three star targets. Editing during a run makes it practice. Beat your best, then <b>Copy link</b> to dare a friend.</p>`,
   },
 ];
 
 /** A short 3-card "how to play". Shown on a first visit; reopen with ? or H. */
 export class HowTo {
-  private back: HTMLDivElement | null = null;
+  private back: HTMLDialogElement | null = null;
   private i = 0;
-  private onClose: (() => void) | null = null;
 
   constructor() {
     const css = document.createElement('style');
     css.textContent = CSS;
     document.head.appendChild(css);
     window.addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey) return;
-      if (e.key.toLowerCase() === 'h' && !this.back) this.open();
+      if (ignoreGameShortcut(e) || e.metaKey || e.ctrlKey) return;
+      if (e.key.toLowerCase() === 'h' || e.key === '?') this.open();
     });
   }
 
@@ -87,54 +85,33 @@ export class HowTo {
     }
   }
 
-  get isOpen(): boolean {
-    return this.back !== null;
-  }
-
-  open(onClose?: () => void): void {
+  open(onClose?: () => void, opener?: HTMLElement): void {
     if (this.back) return;
-    this.onClose = onClose ?? null;
     this.i = 0;
-    const back = (this.back = document.createElement('div'));
+    const back = (this.back = document.createElement('dialog'));
     back.className = 'ht-back';
-    back.innerHTML = `<div class="ht" role="dialog" aria-label="How to play"></div>`;
-    document.body.appendChild(back);
+    back.setAttribute('aria-label', 'How to play');
+    back.innerHTML = '<div class="ht"></div>';
     back.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
-      if (t === back) this.close();
-      else if (t.closest('.next')) this.i < CARDS.length - 1 ? this.show(this.i + 1) : this.close();
+      if (t.closest('.next')) this.i < CARDS.length - 1 ? this.show(this.i + 1) : back.close();
       else if (t.closest('.prev')) this.show(this.i - 1);
     });
-    window.addEventListener('keydown', this.onKey, true);
+    back.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' && this.i < CARDS.length - 1) this.show(this.i + 1);
+      if (e.key === 'ArrowLeft' && this.i > 0) this.show(this.i - 1);
+    });
     this.show(0);
-    setTimeout(() => back.classList.add('show'), 0);
+    showModal(back, () => {
+      this.back = null;
+      try {
+        localStorage.setItem(KEY, '1');
+      } catch {
+        // Storage can be blocked.
+      }
+      onClose?.();
+    }, opener);
   }
-
-  close(): void {
-    const back = this.back;
-    if (!back) return;
-    this.back = null;
-    window.removeEventListener('keydown', this.onKey, true);
-    back.classList.remove('show');
-    setTimeout(() => back.remove(), 200);
-    try {
-      localStorage.setItem(KEY, '1');
-    } catch {
-      // ignore
-    }
-    const cb = this.onClose;
-    this.onClose = null;
-    cb?.();
-  }
-
-  private onKey = (e: KeyboardEvent): void => {
-    e.stopPropagation(); // the game doesn't see keys while the cards are up
-    if (e.key === 'Escape') this.close();
-    else if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      this.i < CARDS.length - 1 ? this.show(this.i + 1) : this.close();
-    } else if (e.key === 'ArrowLeft' && this.i > 0) this.show(this.i - 1);
-  };
 
   private show(i: number): void {
     this.i = i;
@@ -144,6 +121,7 @@ export class HowTo {
       <div class="step">How to play · ${i + 1} of ${CARDS.length}</div>
       <h2>${c.title}</h2><div class="art">${c.art}</div>${c.body()}
       <footer><div class="dots">${CARDS.map((_, j) => `<i class="${j === i ? 'on' : ''}"></i>`).join('')}</div>
-        <div>${i > 0 ? '<button class="prev">Back</button>' : ''}<button class="next">${last ? "Let's go" : 'Next'}</button></div></footer>`;
+        <div>${i > 0 ? '<button class="prev">Back</button>' : ''}<button class="next" autofocus>${last ? "Let's go" : 'Next'}</button></div></footer>`;
+    this.back!.querySelector<HTMLElement>('.next')!.focus();
   }
 }
