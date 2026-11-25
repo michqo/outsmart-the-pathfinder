@@ -113,7 +113,7 @@ Review together: the look, the feel, performance, and whether the move-rule appr
   - [x] HUD: blocks left/total, dug, built. Inventory slider (0–32) in the Search panel
   - [x] Search cubes fade to 15 % while the bot walks
   - [x] Debug → "Gauntlet": moat, clay wall, chasm, crystal cliff (needs every move). 48 Vitest tests
-  - Known nit: underside rock spikes poke into deep chasms (polish later)
+  - ~~Known nit: underside rock spikes poke into deep chasms~~ fixed 2026-11-25: the underside is now one continuous rock mass hung from the island's real bottom (5.3k tris, triplanar rock), replacing ~400 overlapping cones
 - **Realistic look:** ✅ done 2026-11-25 (Graphics → style: Realistic default, Stylised kept for comparison)
   - [x] Poly Haven CC0 assets in `public/assets` (credits in `CREDITS.md`): leafy grass, excavated soil, rock face 03 (1k diff/normal/ARM), Kloofendal puresky HDRI (2k)
   - [x] Terrain textures packed into texture arrays and mapped in world space (no per-block tiles). Two rotated samples are blended by noise to hide tiling. Grass is pulled toward green (the scan is mostly leaf litter); the moss drips over clay with a ragged edge

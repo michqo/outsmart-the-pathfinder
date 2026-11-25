@@ -1,22 +1,27 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Palette } from '../palette';
 import { Mat } from '../world/materials';
+import { fbm, valueNoise } from '../world/noise';
 import { SX, SY, SZ, World } from '../world/world';
-import { hash2, rng } from '../world/noise';
 
-/**
- * Low-poly rocky stalactites hanging under the island.
- * Generated from the island's footprint; cheap enough to rebuild on demand.
- */
 export interface RockMaps {
   map: THREE.Texture;
   normalMap: THREE.Texture;
   armMap: THREE.Texture;
 }
 
-/** With `rock` maps the cones get real rock textures (realistic style); otherwise palette colours. */
+const MAX_DEPTH = 17;
+
+/**
+ * The rock mass hanging under the island: ONE continuous surface, not a pile of cones.
+ *
+ * A grid over the voxel corners: each corner hangs from the island's real bottom there,
+ * by a depth that grows with distance from the footprint's edge (so the rim meets the
+ * island exactly and the middle tapers to a deep, rounded point). Noise adds lumps and a
+ * few stalactite drips. ~8k triangles; with `rock` maps it gets the rock scan.
+ */
 export function buildUnderside(world: World, palette: Palette, rock: RockMaps | null = null, seed = 3): THREE.Mesh {
+  // Lowest solid voxel per column (-1 = empty column).
   const bottom = new Int16Array(SX * SZ).fill(-1);
   for (let z = 0; z < SZ; z++)
     for (let x = 0; x < SX; x++)
@@ -27,86 +32,136 @@ export function buildUnderside(world: World, palette: Palette, rock: RockMaps | 
           break;
         }
       }
+  const col = (x: number, z: number) => (x < 0 || z < 0 || x >= SX || z >= SZ ? -1 : bottom[x + z * SX]);
 
-  // How "interior" a column is: share of solid columns within a radius.
-  const interior = (x: number, z: number): number => {
-    let solid = 0, total = 0;
-    for (let dz = -5; dz <= 5; dz += 1)
-      for (let dx = -5; dx <= 5; dx += 1) {
-        total++;
-        const nx = x + dx, nz = z + dz;
-        if (nx >= 0 && nz >= 0 && nx < SX && nz < SZ && bottom[nx + nz * SX] >= 0) solid++;
+  // Corners: (SX+1) x (SZ+1). A corner is used when any of its 4 columns is solid; it's on
+  // the rim when one of them is empty. Its height is the lowest bottom among its solid columns.
+  const W = SX + 1, D = SZ + 1;
+  const used = new Uint8Array(W * D);
+  const top = new Float32Array(W * D);
+  const dist = new Float32Array(W * D).fill(1e9);
+  const queue: number[] = [];
+  for (let z = 0; z < D; z++)
+    for (let x = 0; x < W; x++) {
+      let solid = 0, lo = 1e9;
+      for (const [dx, dz] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) {
+        const b = col(x + dx, z + dz);
+        if (b >= 0) (solid++, (lo = Math.min(lo, b)));
       }
-    return solid / total;
-  };
-
-  const r = rng(seed);
-  const top = new THREE.Color(rock ? 0xd8d2cc : palette.rock.top);
-  const tip = new THREE.Color(rock ? 0x6e6a70 : palette.rock.tip);
-  const tmp = new THREE.Color();
-  const parts: THREE.BufferGeometry[] = [];
-
-  for (let z = 1; z < SZ; z += 3)
-    for (let x = 1; x < SX; x += 3) {
-      const jx = Math.min(SX - 1, x + Math.floor(r() * 2));
-      const jz = Math.min(SZ - 1, z + Math.floor(r() * 2));
-      const yb = bottom[jx + jz * SX];
-      if (yb < 0) continue;
-      const m = interior(jx, jz);
-      if (m < 0.35) continue;
-      const k = Math.pow((m - 0.35) / 0.65, 1.4);
-      const len = 1.5 + k * 16 * (0.55 + 0.45 * r());
-      const rad = 1.7 + k * 1.6;
-      const g = new THREE.ConeGeometry(rad, len, 6, 3, true).toNonIndexed();
-      g.rotateX(Math.PI); // tip points down
-      g.rotateY(r() * Math.PI);
-      g.translate(jx + 0.5, yb + 0.6 - len / 2, jz + 0.5);
-      const yTop = yb + 0.6;
-
-      const pos = g.getAttribute('position') as THREE.BufferAttribute;
-      const colors = new Float32Array(pos.count * 3);
-      for (let i = 0; i < pos.count; i++) {
-        const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
-        // Jitter by a hash of the position so shared corners move together.
-        const hx = Math.round(px * 10), hz = Math.round(pz * 10), hy = Math.round(py * 10);
-        const notTop = py < yTop - 0.1 ? 1 : 0;
-        pos.setXYZ(
-          i,
-          px + (hash2(hx, hy, 1) - 0.5) * 0.7 * notTop,
-          py + (hash2(hz, hy, 2) - 0.5) * 0.5 * notTop,
-          pz + (hash2(hx, hz, 3) - 0.5) * 0.7 * notTop,
-        );
-        const t = Math.min(1, Math.max(0, (yTop - py) / 18));
-        tmp.copy(top).lerp(tip, t);
-        colors[i * 3] = tmp.r;
-        colors[i * 3 + 1] = tmp.g;
-        colors[i * 3 + 2] = tmp.b;
+      const i = x + z * W;
+      if (!solid) continue;
+      used[i] = 1;
+      top[i] = lo;
+      if (solid < 4) {
+        dist[i] = 0;
+        queue.push(i);
       }
-      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      if (rock) {
-        // About one texture tile per 4 units, so the rock grain matches the voxel slate.
-        const uv = g.getAttribute('uv') as THREE.BufferAttribute;
-        for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * ((rad * Math.PI * 2) / 4), uv.getY(i) * (len / 4));
-      } else g.deleteAttribute('uv');
-      g.computeVertexNormals(); // non-indexed => flat shading
-      parts.push(g);
     }
 
-  const geo = parts.length ? mergeGeometries(parts)! : new THREE.BufferGeometry();
+  // Distance to the rim (8-connected Dijkstra-ish relaxation; cheap at this size).
+  const STEPS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q], x = i % W, z = (i / W) | 0;
+    for (const [dx, dz, c] of STEPS) {
+      const nx = x + dx, nz = z + dz;
+      if (nx < 0 || nz < 0 || nx >= W || nz >= D) continue;
+      const j = nx + nz * W;
+      if (!used[j] || dist[j] <= dist[i] + c) continue;
+      dist[j] = dist[i] + c;
+      queue.push(j);
+    }
+  }
+
+  // Vertex positions: hang each corner below the island bottom.
+  const pos = new Float32Array(W * D * 3);
+  const colors = new Float32Array(W * D * 3);
+  const cTop = new THREE.Color(rock ? 0xd8d2cc : palette.rock.top);
+  const cTip = new THREE.Color(rock ? 0x77716f : palette.rock.tip);
+  const tmp = new THREE.Color();
+  for (let z = 0; z < D; z++)
+    for (let x = 0; x < W; x++) {
+      const i = x + z * W;
+      if (!used[i]) continue;
+      const d = dist[i];
+      const lumps = 0.7 + 0.6 * fbm(x * 0.11, z * 0.11, seed);
+      let depth = MAX_DEPTH * (1 - Math.exp(-d / 6.5)) * lumps;
+      // A few stalactite drips where a coarse noise peaks.
+      const n = valueNoise(x * 0.32, z * 0.32, seed + 11);
+      if (d > 1.5) depth += Math.pow(Math.max(0, n - 0.62) / 0.38, 2) * 7 * Math.min(1, d / 4);
+      const y = top[i] - depth;
+      pos.set([x, y, z], i * 3);
+      // Lighter near the island, darker towards the tips.
+      tmp.copy(cTop).lerp(cTip, Math.min(1, depth / MAX_DEPTH));
+      colors.set([tmp.r, tmp.g, tmp.b], i * 3);
+    }
+
+  // Triangles for every cell whose 4 corners are used (seen from below: wind downward).
+  const idx: number[] = [];
+  for (let z = 0; z < SZ; z++)
+    for (let x = 0; x < SX; x++) {
+      const a = x + z * W, b = a + 1, c = a + W, d = c + 1;
+      if (!(used[a] && used[b] && used[c] && used[d])) continue;
+      if ((x + z) & 1) idx.push(a, b, d, a, d, c);
+      else idx.push(a, b, c, b, d, c);
+    }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
   const material = rock
-    ? new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        map: rock.map,
-        normalMap: rock.normalMap,
-        roughnessMap: rock.armMap,
-        aoMap: rock.armMap,
-        roughness: 1,
-        metalness: 0,
-        side: THREE.DoubleSide,
-      })
-    : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide });
+    ? triplanarRock(rock)
+    : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: true });
   const mesh = new THREE.Mesh(geo, material);
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/**
+ * Rock with world-space triplanar mapping: three projections blended by the surface
+ * direction, so the texture never smears along steep or diagonal faces (no UVs needed).
+ */
+function triplanarRock(rock: RockMaps): THREE.MeshStandardMaterial {
+  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, {
+      tRockAlb: { value: rock.map },
+      tRockNor: { value: rock.normalMap },
+      tRockArm: { value: rock.armMap },
+    });
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vTp;\nvarying vec3 vTpN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTp = transformed * 0.25;\nvTpN = objectNormal;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform sampler2D tRockAlb, tRockNor, tRockArm;
+        varying vec3 vTp;
+        varying vec3 vTpN;`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `vec3 tN = normalize(vTpN);
+        vec3 tw = pow(abs(tN), vec3(4.0));
+        tw /= tw.x + tw.y + tw.z;
+        vec2 uvX = vTp.zy, uvY = vTp.xz, uvZ = vTp.xy;
+        vec3 rAlb = texture2D(tRockAlb, uvX).rgb * tw.x + texture2D(tRockAlb, uvY).rgb * tw.y + texture2D(tRockAlb, uvZ).rgb * tw.z;
+        vec3 rArm = texture2D(tRockArm, uvX).rgb * tw.x + texture2D(tRockArm, uvY).rgb * tw.y + texture2D(tRockArm, uvZ).rgb * tw.z;
+        // Whiteout-style blend of the three tangent-space normals into world space.
+        vec3 nx = texture2D(tRockNor, uvX).xyz * 2.0 - 1.0;
+        vec3 ny = texture2D(tRockNor, uvY).xyz * 2.0 - 1.0;
+        vec3 nz = texture2D(tRockNor, uvZ).xyz * 2.0 - 1.0;
+        vec3 rNW = normalize(
+          vec3(0.0, nx.y, nx.x) * tw.x + vec3(ny.x, 0.0, ny.y) * tw.y + vec3(nz.x, nz.y, 0.0) * tw.z + tN);
+        diffuseColor.rgb *= rAlb * mix(1.0, rArm.r, 0.8);`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = rArm.g;')
+      .replace('#include <normal_fragment_maps>', 'normal = normalize((viewMatrix * vec4(rNW, 0.0)).xyz);');
+  };
+  material.customProgramCacheKey = () => 'underside-triplanar';
+  return material;
 }

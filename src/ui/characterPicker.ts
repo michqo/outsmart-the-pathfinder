@@ -66,6 +66,7 @@ export class CharacterPicker {
     this.button.addEventListener('click', () => this.open());
     document.body.appendChild(this.button);
     this.renderButton();
+    setTimeout(() => this.startThumbs(), 300); // fills the HUD button's picture too
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return;
       if (e.code === 'KeyC' && !e.metaKey && !e.ctrlKey && !this.back) this.open();
