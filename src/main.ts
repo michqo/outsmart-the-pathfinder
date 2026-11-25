@@ -2,8 +2,12 @@ import * as THREE from 'three';
 import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
 import { Handles } from './edit/handles';
-import { generateGauntlet } from './levels/gauntlet';
+import { courseFromHash, decodeLevel, encodeLevel, HASH_KEY } from './levels/codec';
+import { LEVELS, levelById, SANDBOXES, type Level } from './levels/levels';
+import { bestFor, bestScores, lastLevel, recordScore, setLastLevel } from './levels/progress';
 import { defaultSpawn } from './levels/spawn';
+import type { Vec3i } from './path/protocol';
+import { openLevelsDialog, ScorePanel } from './ui/scorePanel';
 import { EditHistory } from './edit/history';
 import { grassFaces, PALETTES } from './palette';
 import { ChunkRenderer } from './render/chunks';
@@ -109,6 +113,7 @@ const bot = new BotController(
     blocks: settings.inventory,
     colorOf,
     onWorldChanged: () => scheduleUnderside(),
+    onRunEnd: (arrived, nodes) => onRunEnd(arrived, nodes),
   },
   spawn.start,
   spawn.goal,
@@ -116,8 +121,8 @@ const bot = new BotController(
 
 // Handles first: their capture listener must run before the editor's.
 new Handles(stage, world, [
-  { object: bot.bot.root, onDrop: (c) => bot.setStart(c), cell: () => bot.home },
-  { object: bot.goalMarker.root, onDrop: (c) => bot.setGoal(c), cell: () => bot.goal },
+  { object: bot.bot.root, onDrop: (c) => canMoveSpawn() && bot.setStart(c), cell: () => bot.home },
+  { object: bot.goalMarker.root, onDrop: (c) => canMoveSpawn() && bot.setGoal(c), cell: () => bot.goal },
 ]);
 
 const history = new EditHistory();
@@ -128,6 +133,13 @@ hotbar.onSelect = (m) => editor.setMaterial(m);
 hotbar.onTool = (t) => editor.setTool(t);
 editor.onToolChange = syncHotbar;
 editor.onEdit = (cells) => {
+  if (!countEdits(cells)) {
+    // Over the level's budget: take the edit straight back.
+    history.undo(world);
+    countEdits(history.lastCells);
+    score.toast(`Out of edits: this level allows ${course.level.budget}. Remove a block to free one.`);
+    return;
+  }
   scheduleUnderside();
   bot.onWorldEdit(cells);
 };
@@ -267,28 +279,182 @@ const pane = createPanel(settings, stats, {
   onShadows: () => (stage.sun.castShadow = settings.shadows),
   onWireframe: () => chunks.setWireframe(settings.wireframe),
   onExposure: () => (stage.renderer.toneMappingExposure = settings.exposure),
-  onRegenerate: () => loadLevel(() => generateTestIsland(world, settings.seed)),
-  onGauntlet: () => {
-    let sp = { start: [0, 0, 0] as [number, number, number], goal: [0, 0, 0] as [number, number, number] };
-    loadLevel(() => (sp = generateGauntlet(world)), undefined, () => sp);
-  },
-  onStress: () => loadLevel(() => generateStressLevel(world), { start: [2, 25, 2], goal: [61, 1, 61] }),
+  onRegenerate: () =>
+    startLevel({ ...SANDBOXES[0], generate: (w) => (generateTestIsland(w, settings.seed), defaultSpawn(w)) }),
+  onGauntlet: () => startLevel(levelById('gauntlet')!),
+  onStress: () =>
+    startLevel({
+      ...SANDBOXES[0],
+      id: 'stress',
+      name: 'Stress test',
+      hint: 'Nine floors of caves. A worst case for the search.',
+      generate: (w) => (generateStressLevel(w), { start: [2, 25, 2], goal: [61, 1, 61] }),
+    }),
   onReveal: () => (bot.viz.duration = settings.revealSeconds),
   onVizStyle: () => bot.setVizStyle(settings.vizStyle),
   onBotModel: () => bot.setModel(settings.botModel),
-  onInventory: () => bot.setInventory(settings.inventory),
+  onInventory: () => {
+    if (course.level.budget !== null) return; // challenges fix the bot's blocks
+    course.inventory = settings.inventory;
+    bot.setInventory(settings.inventory);
+  },
 });
 
-type Spawn = { start: [number, number, number]; goal: [number, number, number] };
-function loadLevel(generate: () => void, spawnAt?: Spawn, spawnFn?: () => Spawn): void {
-  bot.forgetChanges();
-  generate();
-  history.clear();
-  rebuildUnderside();
-  const sp = spawnFn?.() ?? spawnAt ?? defaultSpawn(world);
-  bot.setGoal(sp.goal);
-  bot.setStart(sp.start);
+// ---------------------------------------------------------------- levels & score
+
+/** What's loaded: a level plus the exact world, spawn and rules it started from. */
+interface Course {
+  level: Level;
+  world: Uint8Array;
+  start: Vec3i;
+  goal: Vec3i;
+  inventory: number;
+  weight: number;
+  /** A friend's score from a share link (0 = none). */
+  dare: number;
 }
+
+let course!: Course;
+/** Cells the player has touched since the level loaded (budget = how many now differ from the start). */
+const touched = new Set<number>();
+/** Sandbox: the last arrival's score, if nothing was edited since (shared as the dare). */
+let lastScore = 0;
+let sandboxBest = 0;
+
+const score = new ScorePanel({
+  onLevels: () =>
+    openLevelsDialog(LEVELS, SANDBOXES, bestScores(), course.level.id, (l) => {
+      clearHash();
+      startLevel(l);
+    }),
+  onReset: () => applyCourse(course),
+  onShare: () => void share(),
+  onWeight: (w) => {
+    if (course.level.budget !== null) return;
+    course.weight = bot.weight = w;
+    lastScore = 0;
+  },
+});
+
+const canMoveSpawn = (): boolean => {
+  if (course.level.budget === null) return true;
+  score.toast('Start and flag are fixed in challenges.');
+  return false;
+};
+
+/** Recounts the budget after an edit. False = the edit went over it. */
+function countEdits(cells: number[]): boolean {
+  for (const c of cells) touched.add(c);
+  let used = 0;
+  for (const c of touched) {
+    if (world.data[c] !== course.world[c]) used++;
+    else touched.delete(c);
+  }
+  const budget = course.level.budget;
+  if (budget !== null && used > budget) return false;
+  lastScore = 0;
+  score.setEdits(used, budget);
+  return true;
+}
+
+function onRunEnd(arrived: boolean, nodes: number): void {
+  const { level } = course;
+  let newBest = false;
+  if (arrived && level.budget !== null) newBest = recordScore(level.id, nodes);
+  else if (arrived && nodes > sandboxBest) (sandboxBest = nodes), (newBest = true);
+  if (arrived) lastScore = nodes;
+  score.setResult(arrived, nodes, newBest);
+}
+
+function startLevel(level: Level, dare = 0): void {
+  const sp = level.generate(world);
+  applyCourse({ level, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare });
+  if (level.budget !== null) setLastLevel(level.id);
+}
+
+/** Puts a course's world, spawn and rules in place (also what Reset does). */
+function applyCourse(c: Course): void {
+  course = c;
+  bot.forgetChanges();
+  world.data.set(c.world);
+  world.version++;
+  world.markAllDirty();
+  history.clear();
+  touched.clear();
+  lastScore = sandboxBest = 0;
+  rebuildUnderside();
+  bot.setGoal(c.goal);
+  bot.setStart(c.start);
+  bot.weight = c.weight;
+  bot.setInventory(c.inventory);
+  settings.inventory = c.inventory;
+  pane.refresh();
+  const index = LEVELS.indexOf(c.level);
+  score.setLevel(c.level, index >= 0 ? index : null, c.level.budget !== null ? bestFor(c.level.id) : 0, c.dare);
+  score.setEdits(0, c.level.budget);
+  score.setWeight(c.weight, c.level.budget === null);
+}
+
+/** Copy link: challenges share the level and your best; sandboxes share the whole world. */
+async function share(): Promise<void> {
+  const { level } = course;
+  const challenge = level.budget !== null && LEVELS.includes(level);
+  const dare = challenge ? bestFor(level.id) : lastScore;
+  const text = await encodeLevel({
+    mode: challenge ? 'challenge' : 'sandbox',
+    levelId: challenge ? level.id : '',
+    world: challenge ? null : bot.courseSnapshot(),
+    start: bot.home,
+    goal: bot.goal,
+    inventory: bot.blocksTotal,
+    weight: bot.weight,
+    dare,
+  });
+  const url = `${location.origin}${location.pathname}#${HASH_KEY}${text}`;
+  window.history.replaceState(null, '', url);
+  try {
+    await navigator.clipboard.writeText(url);
+    score.toast(dare ? `Link copied: dare a friend to beat ${dare.toLocaleString('en-US')} nodes` : 'Link copied');
+  } catch {
+    score.toast('Copy the link from the address bar');
+  }
+}
+
+function clearHash(): void {
+  if (location.hash) window.history.replaceState(null, '', location.pathname + location.search);
+}
+
+/** Opens the course in the URL hash, if any. Returns false when there's none (or it's broken). */
+async function openSharedCourse(): Promise<boolean> {
+  const text = courseFromHash(location.hash);
+  if (!text) return false;
+  try {
+    const s = await decodeLevel(text);
+    if (s.mode === 'challenge') {
+      const level = LEVELS.find((l) => l.id === s.levelId);
+      if (!level) throw new Error(`unknown level ${s.levelId}`);
+      startLevel(level, s.dare);
+    } else {
+      const level: Level = {
+        ...SANDBOXES[0],
+        id: 'shared',
+        name: 'Shared course',
+        hint: 'Someone built this for you. Run it, or change it and share it back.',
+      };
+      applyCourse({ level, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare });
+    }
+    return true;
+  } catch (err) {
+    console.warn('Could not open the shared course', err);
+    score.toast("That link's course couldn't be opened");
+    clearHash();
+    return false;
+  }
+}
+
+startLevel(levelById(lastLevel() ?? '') ?? LEVELS[0]);
+void openSharedCourse();
+window.addEventListener('hashchange', () => void openSharedCourse());
 
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Space' || e.target instanceof HTMLInputElement) return;

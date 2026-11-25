@@ -136,7 +136,7 @@ Review together: the look, the feel, performance, and whether the move-rule appr
   - [x] Replans are visualised: red pulsing cages on the edits that mattered, the abandoned path stays dashed until the new one draws, a fresh search from the bot, and a REPLANS counter in the HUD
   - [x] Follow camera: glides the orbit target after the bot during runs, keeping your angle and zoom. Toggle with the HUD switch or **V**
   - [x] 6 new tests (54 total)
-- **M5 — Game layer:** score panel, 5–8 built-in levels (tutorial → hard), RLE + `CompressionStream` deflate → base64url share links (round-trip tests), weighted-A\* slider.
+- **M5 — Game layer:** ✅ done 2026-11-25. Score = nodes expanded over the whole run, counted only when the bot arrives; best per level saved. 6 challenges (tutorial → hard) with fixed start/goal, an edit budget and ★ targets calibrated by a hill-climb (`CALIBRATE=1`); Free build + Gauntlet sandboxes. Share links (RLE + deflate-raw → base64url in `#course=`) carry the level or the whole sandbox world plus your best as a dare. Weighted-A\* slider (1–5) in sandboxes.
 - **M6 — Polish + deploy:** synth blips (optional), loading screen, touch controls, a "how to play" overlay, final name, **Vercel** deploy (`vercel.json` not needed for a plain Vite static build; set up the GitHub repo first).
 
 ## Risks & mitigations

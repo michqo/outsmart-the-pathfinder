@@ -33,6 +33,8 @@ export interface ControllerOptions {
   colorOf(m: Mat): number;
   /** The bot changed the world (dug / placed / restored). */
   onWorldChanged(): void;
+  /** A run ended: did the bot arrive, and how many nodes it expanded in all (replans included). */
+  onRunEnd?(arrived: boolean, nodes: number): void;
 }
 
 /**
@@ -46,6 +48,8 @@ export class BotController {
   goal: Vec3i;
   blocksTotal: number;
   blocksLeft: number;
+  /** Weighted-A* weight: 1 = optimal paths; higher = greedier, usually fewer nodes. */
+  weight = 1;
   readonly bot: BotView;
   readonly goalMarker = new GoalMarker();
   readonly viz: SearchViz;
@@ -70,6 +74,8 @@ export class BotController {
   /** An edit hit the path further ahead: replan when the current step ends. */
   private replanAtNextNode = false;
   private replans = 0;
+  /** Nodes expanded over every search of this run. */
+  private runNodes = 0;
   /** True from the first step of a run until it ends (drives the follow camera). */
   private running = false;
   private ghostTimer = 0;
@@ -130,7 +136,7 @@ export class BotController {
     this.restoreCourse();
     this.at = this.home;
     this.blocksLeft = this.blocksTotal;
-    this.dug = this.built = this.replans = 0;
+    this.dug = this.built = this.replans = this.runNodes = 0;
     this.placeIdle();
     this.faceGoal();
     this.search(this.home, 'searching');
@@ -289,6 +295,7 @@ export class BotController {
         this.bot.setMood('confused');
         this.hud.setStatus('stuck');
         if (this.ghost.group.children.length) this.ghostTimer = 0.8;
+        this.opts.onRunEnd?.(false, this.runNodes);
       }
     }
     if (this.phase === 'path') {
@@ -324,18 +331,19 @@ export class BotController {
     this.phase = 'searching';
     this.bot.setMood('thinking');
     this.hud.setStatus(status);
-    this.hud.setStats({ expanded: 0, pathLength: 0, cost: 0, ms: 0 });
+    this.hud.setStats({ expanded: this.runNodes, pathLength: 0, cost: 0, ms: 0 });
     this.updateInventoryHud();
-    this.client.search(this.world, from, this.goal, 1, this.blocksLeft, {
+    this.client.search(this.world, from, this.goal, this.weight, this.blocksLeft, {
       onProgress: (events, expanded) => {
         this.viz.push(events);
-        this.hud.setStats({ expanded });
+        this.hud.setStats({ expanded: this.runNodes + expanded });
       },
       onDone: (r) => {
         this.result = r;
+        this.runNodes += r.expanded;
         this.viz.finish();
         this.phase = 'revealing';
-        this.hud.setStats({ expanded: r.expanded, ms: r.ms, pathLength: r.found ? r.nodes.length - 1 : 0, cost: r.cost });
+        this.hud.setStats({ expanded: this.runNodes, ms: r.ms, pathLength: r.found ? r.nodes.length - 1 : 0, cost: r.cost });
       },
     });
   }
@@ -439,6 +447,13 @@ export class BotController {
     this.opts.onWorldChanged();
   }
 
+  /** The world as the player built it: a copy with the bot's digging and building taken back out. */
+  courseSnapshot(): Uint8Array {
+    const data = this.world.data.slice();
+    for (const [i, { course, bot }] of this.changes) if (data[i] === bot) data[i] = course;
+    return data;
+  }
+
   /** Undo the bot's changes, except where the player has since edited the same cell. */
   private restoreCourse(): void {
     if (!this.changes.size) return;
@@ -458,6 +473,7 @@ export class BotController {
     this.bot.setMood('happy');
     this.hud.setStatus('happy');
     this.ribbon.fade(0.35);
+    this.opts.onRunEnd?.(true, this.runNodes);
   }
 
   // ---------------------------------------------------------------- helpers

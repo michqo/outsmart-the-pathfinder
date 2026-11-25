@@ -63,7 +63,7 @@ export interface PanelHandlers {
 }
 
 export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers): Pane {
-  const pane = new Pane({ title: 'Outsmart the Pathfinder' });
+  const pane = new Pane({ title: 'Outsmart the Pathfinder', expanded: false });
 
   const perf = pane.addFolder({ title: 'Performance' });
   perf.addBinding(stats, 'fps', { readonly: true, view: 'graph', min: 0, max: 130, label: 'fps' });
