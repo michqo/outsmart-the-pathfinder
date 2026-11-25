@@ -8,6 +8,9 @@ import { bestFor, bestScores, lastLevel, recordScore, setLastLevel } from './lev
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
 import { openLevelsDialog, ScorePanel } from './ui/scorePanel';
+import { Sfx } from './audio/sfx';
+import { Corner } from './ui/corner';
+import { HowTo } from './ui/howTo';
 import { EditHistory } from './edit/history';
 import { grassFaces, PALETTES } from './palette';
 import { ChunkRenderer } from './render/chunks';
@@ -102,6 +105,7 @@ function scheduleUnderside(): void {
 
 generateTestIsland(world, settings.seed);
 const hud = new Hud();
+const sfx = new Sfx();
 const spawn = defaultSpawn(world);
 const bot = new BotController(
   stage,
@@ -114,6 +118,7 @@ const bot = new BotController(
     colorOf,
     onWorldChanged: () => scheduleUnderside(),
     onRunEnd: (arrived, nodes) => onRunEnd(arrived, nodes),
+    onSound: (s) => sfx.play(s),
   },
   spawn.start,
   spawn.goal,
@@ -137,12 +142,15 @@ editor.onEdit = (cells) => {
     // Over the level's budget: take the edit straight back.
     history.undo(world);
     countEdits(history.lastCells);
+    sfx.play('denied');
     score.toast(`Out of edits: this level allows ${course.level.budget}. Remove a block to free one.`);
     return;
   }
+  if (cells.length) sfx.play(world.data[cells[0]] === Mat.Air ? 'remove' : 'place');
   scheduleUnderside();
   bot.onWorldEdit(cells);
 };
+hotbar.onUndo = () => editor.undo();
 const follow = new FollowCam(stage, (out) => bot.followTarget(out));
 syncHotbar();
 
@@ -260,8 +268,17 @@ function onLoaded(): void {
         return v.root;
       }, onEach),
   );
-  if (!storedCharacter()) picker.open();
+  if (!HowTo.seen) howTo.open(() => !storedCharacter() && picker.open());
+  else if (!storedCharacter()) picker.open();
 }
+
+const howTo = new HowTo();
+const corner = new Corner(sfx.muted, {
+  onRun: () => bot.run(),
+  onHelp: () => howTo.open(),
+  onMute: (m) => sfx.setMuted(m),
+});
+let wasBusy = false;
 
 const pane = createPanel(settings, stats, {
   onStyle: applyPalette,
@@ -338,6 +355,7 @@ const score = new ScorePanel({
 
 const canMoveSpawn = (): boolean => {
   if (course.level.budget === null) return true;
+  sfx.play('denied');
   score.toast('Start and flag are fixed in challenges.');
   return false;
 };
@@ -363,6 +381,7 @@ function onRunEnd(arrived: boolean, nodes: number): void {
   if (arrived && level.budget !== null) newBest = recordScore(level.id, nodes);
   else if (arrived && nodes > sandboxBest) (sandboxBest = nodes), (newBest = true);
   if (arrived) lastScore = nodes;
+  if (newBest) sfx.play('best');
   score.setResult(arrived, nodes, newBest);
 }
 
@@ -485,6 +504,7 @@ stage.renderer.setAnimationLoop((time) => {
   }
   editor.update(dt);
   bot.update(dt, t);
+  if (bot.busy !== wasBusy) corner.setBusy((wasBusy = bot.busy));
   follow.update(dt);
   sky.update(t);
   stage.controls.update();

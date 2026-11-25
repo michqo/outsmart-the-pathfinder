@@ -25,7 +25,7 @@ Tick the boxes as we go. Every milestone ends with: browser check → screenshot
 | Tests | **Vitest from M2** (heap, A\*, the 4 basic moves). Every move rule gets tests in M3 |
 | Plan location | This file |
 
-Still OPEN (asked when we get there): the final name.
+Final name: **Outsmart the Pathfinder** (decided at M6).
 
 ---
 
@@ -137,7 +137,7 @@ Review together: the look, the feel, performance, and whether the move-rule appr
   - [x] Follow camera: glides the orbit target after the bot during runs, keeping your angle and zoom. Toggle with the HUD switch or **V**
   - [x] 6 new tests (54 total)
 - **M5 — Game layer:** ✅ done 2026-11-25. Score = nodes expanded over the whole run, counted only when the bot arrives; best per level saved. 6 challenges (tutorial → hard) with fixed start/goal, an edit budget and ★ targets calibrated by a hill-climb (`CALIBRATE=1`); Free build + Gauntlet sandboxes. Share links (RLE + deflate-raw → base64url in `#course=`) carry the level or the whole sandbox world plus your best as a dare. Weighted-A\* slider (1–5) in sandboxes.
-- **M6 — Polish + deploy:** synth blips (optional), loading screen, touch controls, a "how to play" overlay, final name, **Vercel** deploy (`vercel.json` not needed for a plain Vite static build; set up the GitHub repo first).
+- **M6 — Polish + deploy:** ✅ done 2026-11-25 (deploy pending: GitHub repo + Vercel by the owner). Final name kept: **Outsmart the Pathfinder**. 3-card how-to-play on first visit (then the character picker), reopen with ? / H. WebAudio synth blips (place, remove, search ticks, dig, pop, bonk, arrive, stuck, new best, denied) with a remembered mute. Run / ? / mute corner buttons, undo in the hotbar. Touch: tap to place, a second finger cancels the tap (pinch/pan), phone layout (compact HUD on top, collapsible score panel, swatch-only hotbar, Tweakpane hidden), portrait camera fit. Textures recompressed (8.9 → 4.3 MB), three.js split into its own chunk, meta tags + SVG favicon, README.
 
 ## Risks & mitigations
 

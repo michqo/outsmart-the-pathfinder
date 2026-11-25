@@ -13,6 +13,17 @@ export interface Stage {
   island: THREE.Group;
 }
 
+const FOV = 38;
+
+/**
+ * Portrait screens (phones) would crop the island's sides, so below a square aspect the
+ * vertical FOV widens to keep the horizontal view a square screen would have.
+ */
+function fitFov(camera: THREE.PerspectiveCamera): void {
+  const half = THREE.MathUtils.degToRad(FOV / 2);
+  camera.fov = camera.aspect >= 1 ? FOV : Math.min(80, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(half) / camera.aspect)));
+}
+
 export function createStage(): Stage {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -25,7 +36,8 @@ export function createStage(): Stage {
 
   const scene = new THREE.Scene();
 
-  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.5, 1500);
+  const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.5, 1500);
+  fitFov(camera);
   camera.position.set(58, 46, 68);
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -35,6 +47,8 @@ export function createStage(): Stage {
   controls.minDistance = 6;
   controls.maxDistance = 220;
   controls.maxPolarAngle = Math.PI * 0.78; // allow peeking at the underside
+  // Phones in portrait: start further back so the whole island fits across.
+  if (camera.aspect < 0.8) camera.position.sub(controls.target).multiplyScalar(1.3).add(controls.target);
   controls.update();
 
   const island = new THREE.Group();
@@ -63,6 +77,7 @@ export function createStage(): Stage {
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
+    fitFov(camera);
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });

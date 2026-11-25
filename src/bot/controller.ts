@@ -14,6 +14,7 @@ import { voxelCoords, voxelIndex, type World } from '../world/world';
 import * as THREE from 'three';
 import { pathFootprint, stepFootprint, touching } from './pathTouch';
 import { Walker } from './walker';
+import type { Sound } from '../audio/sfx';
 
 type Phase = 'idle' | 'searching' | 'revealing' | 'path' | 'walking' | 'bonk';
 
@@ -35,6 +36,8 @@ export interface ControllerOptions {
   onWorldChanged(): void;
   /** A run ended: did the bot arrive, and how many nodes it expanded in all (replans included). */
   onRunEnd?(arrived: boolean, nodes: number): void;
+  /** Something worth a sound happened. */
+  onSound?(s: Sound): void;
 }
 
 /**
@@ -242,6 +245,7 @@ export class BotController {
     this.phase = 'bonk';
     this.bot.setMood('confused');
     this.bot.land(true);
+    this.opts.onSound?.('bonk');
     this.hud.setStatus('replanning');
   }
 
@@ -294,6 +298,7 @@ export class BotController {
         this.running = false;
         this.bot.setMood('confused');
         this.hud.setStatus('stuck');
+        this.opts.onSound?.('stuck');
         if (this.ghost.group.children.length) this.ghostTimer = 0.8;
         this.opts.onRunEnd?.(false, this.runNodes);
       }
@@ -336,6 +341,7 @@ export class BotController {
     this.client.search(this.world, from, this.goal, this.weight, this.blocksLeft, {
       onProgress: (events, expanded) => {
         this.viz.push(events);
+        this.opts.onSound?.('think');
         this.hud.setStats({ expanded: this.runNodes + expanded });
       },
       onDone: (r) => {
@@ -410,6 +416,7 @@ export class BotController {
       const m = this.world.get(c[0], c[1], c[2]);
       this.effects.drill(c, this.opts.colorOf(m), seconds, () => {
         this.setBlock(c, Mat.Air);
+        this.opts.onSound?.('dig');
         this.dug++;
         this.updateInventoryHud();
       });
@@ -425,7 +432,10 @@ export class BotController {
       c,
       this.opts.colorOf(Mat.Placed),
       seconds,
-      () => this.setBlock(c, Mat.Placed),
+      () => {
+        this.setBlock(c, Mat.Placed);
+        this.opts.onSound?.('pop');
+      },
       () => {
         // Interrupted before it landed: the block goes back in the bag.
         this.blocksLeft++;
@@ -473,6 +483,7 @@ export class BotController {
     this.bot.setMood('happy');
     this.hud.setStatus('happy');
     this.ribbon.fade(0.35);
+    this.opts.onSound?.('arrive');
     this.opts.onRunEnd?.(true, this.runNodes);
   }
 

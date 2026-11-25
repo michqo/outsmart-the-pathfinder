@@ -38,6 +38,16 @@ const CSS = /* css */ `
 .sp .btns button:hover { background: #ddd6ef; }
 .sp .btns button.main { background: #3b3355; color: #fff; }
 .sp .btns button.main:hover { background: #4d4470; }
+.sp .lv .tog { display: none; opacity: .5; }
+@media (max-width: 720px) {
+  .sp { left: 10px; top: 58px; width: 214px; padding: 10px 12px; }
+  .sp .lv { cursor: pointer; }
+  .sp .lv .tog { display: inline; }
+  .sp .lv small.kind { display: none; }
+  .sp .score b { font-size: 22px; }
+  .sp.min .lvhint, .sp.min .best, .sp.min .stars, .sp.min .bar, .sp.min .weight { display: none; }
+  .sp.min .btns { margin-top: 8px; }
+}
 .sp-toast { position: fixed; left: 50%; top: 70px; z-index: 1100; transform: translate(-50%, -8px); padding: 8px 16px;
   border-radius: 12px; background: #3b3355; color: #fff; font: 600 13px/1.2 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
@@ -88,7 +98,7 @@ export class ScorePanel {
     document.head.appendChild(css);
     this.el.className = 'sp';
     this.el.innerHTML = `
-      <div class="lv"><b class="name"></b><small class="kind"></small></div>
+      <div class="lv"><b class="name"></b><small class="kind"></small><small class="tog">▾</small></div>
       <p class="lvhint"></p>
       <div class="dare" hidden></div>
       <div class="score"><b class="nodes">–</b><span class="unit">nodes</span></div>
@@ -102,6 +112,11 @@ export class ScorePanel {
     this.toastEl.className = 'sp-toast';
     document.body.appendChild(this.toastEl);
 
+    if (matchMedia('(max-width: 720px)').matches) this.el.classList.add('min');
+    this.q('.lv').onclick = () => {
+      const min = this.el.classList.toggle('min');
+      this.q('.tog').textContent = min ? '▾' : '▴';
+    };
     this.q('.levels').onclick = () => h.onLevels();
     this.q('.reset').onclick = () => h.onReset();
     this.q('.share').onclick = () => h.onShare();

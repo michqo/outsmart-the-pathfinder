@@ -15,8 +15,15 @@ const CSS = /* css */ `
 .hud .stat b { font-size: 15px; font-variant-numeric: tabular-nums; }
 .hud .stat span { font-size: 9px; opacity: .55; text-transform: uppercase; letter-spacing: .06em; }
 .hud kbd { font: inherit; padding: 2px 7px; border-radius: 6px; background: #3b3355; color: #fff; }
-@media (max-width: 720px) { .hud { top: auto; bottom: 84px; } }
+@media (max-width: 720px) {
+  .hud { top: 10px; gap: 10px; padding: 6px 12px; }
+  .hud .opt, .hud .sep, .hud kbd { display: none; }
+  .hud .status { min-width: 0; }
+}
 `;
+
+/** Stats hidden on small screens. */
+const OPTIONAL = new Set(['pathLength', 'cost', 'ms', 'dug', 'built']);
 
 export type HudStatus = 'ready' | 'searching' | 'walking' | 'happy' | 'stuck' | 'replanning';
 
@@ -52,7 +59,7 @@ export class Hud {
     css.textContent = CSS;
     document.head.appendChild(css);
     this.el.className = 'hud';
-    const stat = (k: string, name: string) => `<div class="stat"><b data-k="${k}">–</b><span>${name}</span></div>`;
+    const stat = (k: string, name: string) => `<div class="stat${OPTIONAL.has(k) ? ' opt' : ''}"><b data-k="${k}">–</b><span>${name}</span></div>`;
     this.el.innerHTML =
       `<div class="status"><i class="dot"></i><span class="label"></span></div>` +
       stat('expanded', 'nodes') + stat('pathLength', 'steps') + stat('cost', 'cost') + stat('ms', 'ms') +

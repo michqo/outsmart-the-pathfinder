@@ -47,6 +47,8 @@ export class Editor {
   private fillTo = new THREE.Vector3();
   private focusGoal: THREE.Vector3 | null = null;
   private shiftHeld = false;
+  /** Pointers currently down: a second finger turns a would-be tap into a pinch. */
+  private pointers = new Set<number>();
 
   private outline: THREE.LineSegments;
   private ghost: THREE.Mesh;
@@ -84,6 +86,10 @@ export class Editor {
     // Capture phase: runs before OrbitControls' own pointerdown, so a shift-press can claim the drag.
     el.addEventListener('pointerdown', this.onDown, { capture: true });
     el.addEventListener('pointerup', this.onUp);
+    el.addEventListener('pointercancel', (e) => {
+      this.pointers.delete(e.pointerId);
+      this.press = null;
+    });
     el.addEventListener('pointerleave', () => {
       this.pointerInside = false;
       this.hover = null;
@@ -140,6 +146,11 @@ export class Editor {
   };
 
   private onDown = (e: PointerEvent): void => {
+    this.pointers.add(e.pointerId);
+    if (this.pointers.size > 1) {
+      this.press = null; // two fingers: camera gesture, not an edit
+      return;
+    }
     if (!this.enabled || e.button === 1) return;
     const remove = e.button === 2 || e.ctrlKey || this.tool === 'remove';
     this.onMove(e);
@@ -162,8 +173,11 @@ export class Editor {
   };
 
   private onUp = (e: PointerEvent): void => {
+    this.pointers.delete(e.pointerId);
     const p = this.press;
     this.press = null;
+    // A finger has no hover: drop the preview once it lifts.
+    if (e.pointerType === 'touch') queueMicrotask(() => ((this.pointerInside = false), (this.hover = null)));
     if (!this.shiftHeld) this.stage.controls.enabled = true; // never leave the camera locked
     if (!p || !this.enabled) return;
     if (p.fillFrom) {

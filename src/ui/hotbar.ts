@@ -44,15 +44,25 @@ const CSS = /* css */ `
 .hb.pebbles .tool.on { background: #3b3355; color: #fff; }
 .hb.pebbles .sep { display: none; }
 
-.hint { position: fixed; left: 14px; bottom: 14px; max-width: calc(50vw - 330px); font: 500 11px/1.6 ui-rounded, system-ui, sans-serif; color: #3b3355aa; user-select: none; pointer-events: none; }
-.hint b { color: #3b3355; font-weight: 600; }
-@media (max-width: 1180px) { .hint { display: none; } }
+.hb-hint { position: fixed; left: 14px; bottom: 14px; max-width: calc(50vw - 330px); font: 500 11px/1.6 ui-rounded, system-ui, sans-serif; color: #3b3355aa; user-select: none; pointer-events: none; }
+.hb-hint b { color: #3b3355; font-weight: 600; }
+@media (max-width: 1180px) { .hb-hint { display: none; } }
+@media (max-width: 720px), (pointer: coarse) {
+  .hb { bottom: 10px; gap: 4px; }
+  .hb.chips { padding: 5px; }
+  .hb.chips .mat { padding: 7px; }
+  .hb.chips .mat .sw { width: 24px; height: 24px; }
+  .hb .mat .label, .hb .mat .key { display: none; }
+  .hb.pebbles .mat { width: 38px; height: 38px; }
+  .hb .tool { width: 38px; height: 38px; }
+}
 `;
 
 export class Hotbar {
   readonly el = document.createElement('div');
   onSelect: (m: Mat) => void = () => {};
   onTool: (t: Tool) => void = () => {};
+  onUndo: () => void = () => {};
   private mats = new Map<Mat, HTMLButtonElement>();
   private tools = new Map<Tool, HTMLButtonElement>();
 
@@ -85,11 +95,17 @@ export class Hotbar {
       this.tools.set(t, b);
       this.el.appendChild(b);
     }
+    const undo = document.createElement('button');
+    undo.className = 'tool undo';
+    undo.textContent = '↶';
+    undo.title = 'Undo (⌘Z)';
+    undo.addEventListener('click', () => this.onUndo());
+    this.el.appendChild(undo);
     this.setStyle(style);
     document.body.appendChild(this.el);
 
     const hint = document.createElement('div');
-    hint.className = 'hint';
+    hint.className = 'hb-hint';
     hint.innerHTML =
       '<b>Click</b> place · <b>Right / two-finger click</b> remove · <b>Shift-drag</b> fill (<b>+⌥</b> wall)<br>' +
       '<b>Drag</b> orbit · <b>1–5</b> material · <b>E / R</b> place / remove · <b>F</b> or <b>⌥-click</b> focus · <b>⌘Z</b> undo';

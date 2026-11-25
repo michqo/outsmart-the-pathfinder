@@ -7,6 +7,7 @@ const CSS = /* css */ `
   box-shadow: 0 6px 24px #5a4a7a22, inset 0 0 0 1px #fff; cursor: pointer;
   font: 600 12px/1 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; color: #3b3355; }
 .follow-btn:hover { background: #fff; }
+@media (max-width: 720px) { .follow-btn { display: none; } }
 .follow-btn i { width: 26px; height: 15px; border-radius: 8px; background: #cfc9dc; position: relative; transition: background .15s; }
 .follow-btn i::after { content: ''; position: absolute; left: 2px; top: 2px; width: 11px; height: 11px; border-radius: 50%;
   background: #fff; transition: transform .15s; }
