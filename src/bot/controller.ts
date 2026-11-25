@@ -10,7 +10,7 @@ import type { Stage } from '../render/scene';
 import { SearchViz, type VizStyle } from '../render/searchViz';
 import type { Hud } from '../ui/hud';
 import { Mat } from '../world/materials';
-import { voxelCoords, voxelIndex, type World } from '../world/world';
+import type { World } from '../world/world';
 import * as THREE from 'three';
 import { pathFootprint, stepFootprint, touching } from './pathTouch';
 import { Walker } from './walker';
@@ -114,7 +114,7 @@ export class BotController {
         this.ribbon.stepDone(i);
         if (this.replanAtNextNode && this.result && i < this.result.nodes.length - 1) {
           this.walker.stop();
-          this.replan(voxelCoords(this.result.nodes[i]));
+          this.replan(this.world.coords(this.result.nodes[i]));
           return;
         }
         if (k !== MoveKind.Dig && k !== MoveKind.DigDown) this.bot.setMood('walking');
@@ -221,13 +221,13 @@ export class BotController {
   private reactToEdit(cells: number[]): void {
     const { nodes, kinds } = this.result!;
     const i = this.phase === 'walking' ? this.walker.stepIndex : 0;
-    const now = this.phase === 'walking' ? touching(cells, stepFootprint(nodes, kinds, i)) : [];
+    const now = this.phase === 'walking' ? touching(cells, stepFootprint(this.world, nodes, kinds, i)) : [];
     if (now.length) {
       this.markEdits(now);
       this.bonk(i);
       return;
     }
-    const ahead = touching(cells, pathFootprint(nodes, kinds, this.phase === 'walking' ? i + 1 : 0));
+    const ahead = touching(cells, pathFootprint(this.world, nodes, kinds, this.phase === 'walking' ? i + 1 : 0));
     if (!ahead.length) return; // doesn't matter to the plan
     this.markEdits(ahead);
     if (this.phase === 'path') this.replan(this.at);
@@ -238,7 +238,7 @@ export class BotController {
   }
 
   private markEdits(cells: number[]): void {
-    for (const c of cells.slice(0, 24)) this.effects.flash(voxelCoords(c));
+    for (const c of cells.slice(0, 24)) this.effects.flash(this.world.coords(c));
   }
 
   /** An edit landed on the step in progress: hop back to where it started, startled, then rethink. */
@@ -264,7 +264,7 @@ export class BotController {
     if (!this.result?.found) return;
     const n = this.result.nodes.length;
     if (from >= n - 1) return;
-    this.ghost.show(this.result.nodes.slice(from), this.result.kinds.slice(from), 0);
+    this.ghost.show(this.world, this.result.nodes.slice(from), this.result.kinds.slice(from), 0);
     this.ghost.fade(1);
     this.ghostTimer = 0;
   }
@@ -299,7 +299,7 @@ export class BotController {
 
     if (this.phase === 'revealing' && this.viz.playbackDone && this.result) {
       if (this.result.found) {
-        this.ribbon.show(this.result.nodes, this.result.kinds, 0.6);
+        this.ribbon.show(this.world, this.result.nodes, this.result.kinds, 0.6);
         if (this.ghost.group.children.length) this.ghostTimer = 0.8; // the old path fades as the new one draws
         this.phase = 'path';
         this.pathTimer = 0;
@@ -321,7 +321,7 @@ export class BotController {
         this.replanAtNextNode = false;
         this.bot.setMood('walking');
         this.hud.setStatus('walking');
-        this.walker.start(this.result!.nodes, this.result!.kinds);
+        this.walker.start(this.world, this.result!.nodes, this.result!.kinds);
         this.viz.fadeTo(0.15, 0.8);
       }
     }
@@ -338,7 +338,7 @@ export class BotController {
 
   private search(from: Vec3i, status: 'searching' | 'replanning'): void {
     this.client.cancel();
-    this.viz.reset();
+    this.viz.reset(this.world);
     this.ribbon.clear();
     this.result = null;
     this.searchFrom = from;
@@ -442,7 +442,7 @@ export class BotController {
   private setBlock(c: Vec3i, m: Mat): void {
     const before = this.world.get(c[0], c[1], c[2]);
     if (before === m) return;
-    const i = voxelIndex(c[0], c[1], c[2]);
+    const i = this.world.index(c[0], c[1], c[2]);
     const entry = this.changes.get(i);
     if (entry) entry.bot = m;
     else this.changes.set(i, { course: before, bot: m });
@@ -462,7 +462,7 @@ export class BotController {
     if (!this.changes.size) return;
     for (const [i, { course, bot }] of this.changes) {
       if (this.world.data[i] !== bot) continue; // the player changed it since: theirs wins
-      const [x, y, z] = voxelCoords(i);
+      const [x, y, z] = this.world.coords(i);
       this.world.set(x, y, z, course);
     }
     this.changes.clear();

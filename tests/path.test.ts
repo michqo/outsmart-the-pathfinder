@@ -3,7 +3,7 @@ import { AStar } from '../src/path/astar';
 import { MinHeap } from '../src/path/heap';
 import { canStand, COST, expandMoves, HARDNESS, isMoveValid, MoveKind } from '../src/path/moves';
 import { Mat } from '../src/world/materials';
-import { voxelCoords, World } from '../src/world/world';
+import { DEFAULT_DIMS as D, voxelCoords, World } from '../src/world/world';
 
 /** A flat floor of `m` at y = 0 over x, z in [0, size). Feet stand at y = 1. */
 function floor(size = 16, m: Mat = Mat.Stone): World {
@@ -197,7 +197,7 @@ describe('isMoveValid', () => {
 });
 
 describe('AStar', () => {
-  const xyz = (ids: Int32Array) => Array.from(ids, (i) => voxelCoords(i));
+  const xyz = (ids: Int32Array) => Array.from(ids, (i) => voxelCoords(D, i));
   const count = (p: { kinds: Uint8Array }, k: number) => Array.from(p.kinds).filter((x) => x === k).length;
 
   it('finds a straight path with the right cost', () => {

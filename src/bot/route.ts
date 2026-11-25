@@ -24,13 +24,13 @@ export function placeCell(a: Vec3i, b: Vec3i, kind: number): Vec3i | null {
 
 /** Replays the route on a private copy. A duel scores the plan as drawn, without replanning. */
 export function reachesFlag(world: World, path: PathResult, blocks: number): boolean {
-  const replay = new World();
+  const replay = new World(world.sx, world.sy, world.sz);
   replay.data.set(world.data);
-  let a = voxelCoords(path.nodes[0]);
+  let a = voxelCoords(world, path.nodes[0]);
   const inhabitable = (c: Vec3i) => canStand(replay, ...c) || isSwimSpot(replay, ...c);
   if (!inhabitable(a)) return false;
   for (let i = 1; i < path.nodes.length; i++) {
-    const b = voxelCoords(path.nodes[i]);
+    const b = voxelCoords(world, path.nodes[i]);
     const kind = resolveMove(replay, a, b, path.kinds[i], blocks);
     if (kind < 0) return false;
     for (const cell of digCells(replay, a, b, kind)) replay.setRaw(...cell, Mat.Air);

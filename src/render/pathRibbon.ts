@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MoveKind } from '../path/moves';
-import { voxelCoords } from '../world/world';
+import { voxelCoords, type Dims } from '../world/world';
 
 const LIFT = 0.22;
 
@@ -72,14 +72,14 @@ export class PathRibbon {
     }
   }
 
-  show(nodes: Int32Array, kinds: Uint8Array, revealSeconds = 0.5): void {
+  show(d: Dims, nodes: Int32Array, kinds: Uint8Array, revealSeconds = 0.5): void {
     this.clear();
     this.uniforms.uBroken.value = this.broken ? 1 : 0;
     if (nodes.length < 2) return;
     const pts: THREE.Vector3[] = [];
     let prev: THREE.Vector3 | null = null;
     for (let i = 0; i < nodes.length; i++) {
-      const [x, y, z] = voxelCoords(nodes[i]);
+      const [x, y, z] = voxelCoords(d, nodes[i]);
       const p = new THREE.Vector3(x + 0.5, y + (this.comparison?.lift ?? LIFT), z + 0.5);
       if (prev && kinds[i] === MoveKind.StepUp) {
         pts.push(new THREE.Vector3((prev.x + p.x) / 2, p.y + 0.15, (prev.z + p.z) / 2));
@@ -89,7 +89,7 @@ export class PathRibbon {
       pts.push(p);
       prev = p;
     }
-    if (!this.broken && !this.comparison) this.addMarkers(nodes, kinds);
+    if (!this.broken && !this.comparison) this.addMarkers(d, nodes, kinds);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const len = curve.getLength();
     const geo = new THREE.TubeGeometry(curve, Math.max(16, Math.ceil(len * 10)), this.comparison ? 0.075 : 0.14, 8, false);
@@ -108,11 +108,11 @@ export class PathRibbon {
   }
 
   /** Drill bits over blocks the bot will dig; ghost blocks where it will build. */
-  private addMarkers(nodes: Int32Array, kinds: Uint8Array): void {
+  private addMarkers(d: Dims, nodes: Int32Array, kinds: Uint8Array): void {
     for (let i = 1; i < nodes.length; i++) {
       const k = kinds[i];
-      const [x, y, z] = voxelCoords(nodes[i]);
-      const [px, py, pz] = voxelCoords(nodes[i - 1]);
+      const [x, y, z] = voxelCoords(d, nodes[i]);
+      const [px, py, pz] = voxelCoords(d, nodes[i - 1]);
       let m: THREE.Object3D | null = null;
       if (k === MoveKind.Dig || k === MoveKind.DigDown) {
         // Hovers over the column being dug, pointing down at it.

@@ -7,7 +7,7 @@ import type { FromWorker, ToWorker, Vec3i } from '../src/path/protocol';
 import type { Stage } from '../src/render/scene';
 import type { Hud } from '../src/ui/hud';
 import { Mat } from '../src/world/materials';
-import { World, voxelIndex } from '../src/world/world';
+import { DEFAULT_DIMS as D, World, voxelIndex } from '../src/world/world';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -29,7 +29,7 @@ it('marks a place-and-undo run as practice without affecting the next clean run'
     if (request?.type !== 'search') throw new Error('Expected a search request');
     worker.onmessage({ data: {
       type: 'done', id: request.id, version: request.version, found: true, cost: 1, expanded: 2, ms: 1,
-      nodes: Int32Array.of(voxelIndex(...home), voxelIndex(...goal)), kinds: Uint8Array.of(0, MoveKind.Walk),
+      nodes: Int32Array.of(voxelIndex(D, ...home), voxelIndex(D, ...goal)), kinds: Uint8Array.of(0, MoveKind.Walk),
     } });
   };
   const walkToGoal = () => {

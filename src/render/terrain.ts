@@ -1,30 +1,43 @@
 import { CLOUD_GLSL, type CloudUniforms } from './clouds';
 import * as THREE from 'three';
-import { SX, SY, SZ, World } from '../world/world';
+import type { World } from '../world/world';
 import type { Assets } from './assets';
 
 /**
  * The voxel grid as a 3D texture, so terrain shaders can look up a face's material
  * and its neighbours (bevels only on exposed edges). The world's flat layout
- * `x + z*SX + y*SX*SZ` is exactly a 3D texture of size SX x SZ x SY: no copy needed.
+ * `x + z*sx + y*sx*sz` is exactly a 3D texture of size sx × sz × sy: no copy needed.
+ * When the window is reshaped the texture is recreated; shaders hold `uniform`, which follows.
  */
 export class VoxelTexture {
-  readonly texture: THREE.Data3DTexture;
+  readonly uniform: { value: THREE.Data3DTexture };
 
-  constructor(world: World) {
-    const t = new THREE.Data3DTexture(world.data, SX, SZ, SY);
+  constructor(private world: World) {
+    this.uniform = { value: this.create() };
+  }
+
+  get texture(): THREE.Data3DTexture {
+    return this.uniform.value;
+  }
+
+  private create(): THREE.Data3DTexture {
+    const w = this.world;
+    const t = new THREE.Data3DTexture(w.data, w.sx, w.sz, w.sy);
     t.format = THREE.RedFormat;
     t.type = THREE.UnsignedByteType;
     t.minFilter = t.magFilter = THREE.NearestFilter;
     t.unpackAlignment = 1;
     t.generateMipmaps = false;
     t.needsUpdate = true;
-    this.texture = t;
+    return t;
   }
 
-  /** Re-upload (128 KB); call whenever voxels changed. */
+  /** Re-upload (128 KB for the default window); call whenever voxels changed. */
   touch(): void {
-    this.texture.needsUpdate = true;
+    if (this.texture.image.data !== this.world.data) {
+      this.texture.dispose();
+      this.uniform.value = this.create();
+    } else this.texture.needsUpdate = true;
   }
 }
 
@@ -56,7 +69,8 @@ uniform float uRealism;
 uniform vec3 uGrassTop, uGrassSide, uSoil, uStone;
 
 int voxAt(ivec3 c) {
-  if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= ${SX} || c.y >= ${SY} || c.z >= ${SZ}) return 0;
+  ivec3 n = textureSize(tVox, 0); // (sx, sz, sy)
+  if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= n.x || c.y >= n.z || c.z >= n.y) return 0;
   return int(texelFetch(tVox, ivec3(c.x, c.z, c.y), 0).r * 255.0 + 0.5);
 }
 bool solidM(int m) { return m != 0 && m != 5; }
@@ -227,7 +241,7 @@ export function createTerrainMaterial(
       tAlb: { value: assets.albedo },
       tNor: { value: assets.normal },
       tArm: { value: assets.arm },
-      tVox: { value: vox.texture },
+      tVox: vox.uniform,
       ...(clouds ?? {}),
       uIslandOffset: { value: islandOffset },
     });

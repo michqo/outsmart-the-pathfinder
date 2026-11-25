@@ -1,4 +1,4 @@
-import { SX, SY, SZ } from '../world/world';
+import type { Dims } from '../world/world';
 import { MinHeap } from './heap';
 import { expandMoves, heuristic, MoveKind, type Grid, type MoveSink } from './moves';
 
@@ -14,8 +14,6 @@ export interface PathResult {
   kinds: Uint8Array;
   cost: number;
 }
-
-const cellId = (x: number, y: number, z: number) => x + z * SX + y * SX * SZ;
 
 /**
  * Search states (cell, blocksLeft) live in a growable node store found through an
@@ -89,7 +87,10 @@ export class AStar {
   private heap = new MinHeap();
   private events = new Uint32Array(1 << 14);
   private eventCount = 0;
-  private seenCell = new Uint8Array(SX * SY * SZ);
+  private seenCell: Uint8Array;
+  private sx: number;
+  private sy: number;
+  private sz: number;
   private stride: number;
   private goalCell: number;
   private goalNode = -1;
@@ -101,22 +102,30 @@ export class AStar {
   expanded = 0;
 
   constructor(
-    private grid: Grid,
+    private grid: Grid & Dims,
     start: readonly [number, number, number],
     private goal: readonly [number, number, number],
     private weight = 1,
     blocks = 0,
     private pruneDominated = false,
   ) {
+    this.sx = grid.sx;
+    this.sy = grid.sy;
+    this.sz = grid.sz;
+    this.seenCell = new Uint8Array(grid.sx * grid.sy * grid.sz);
     this.stride = blocks + 1;
-    this.goalCell = cellId(goal[0], goal[1], goal[2]);
-    const sc = cellId(start[0], start[1], start[2]);
+    this.goalCell = this.cellId(goal[0], goal[1], goal[2]);
+    const sc = this.cellId(start[0], start[1], start[2]);
     const n = this.nodes.add(sc * this.stride + blocks);
     this.nodes.g[n] = 0;
     this.nodes.parent[n] = -1;
     this.nodes.kind[n] = MoveKind.Start;
     this.openCell(sc);
     this.heap.push(n, this.estimate(...start));
+  }
+
+  private cellId(x: number, y: number, z: number): number {
+    return x + z * this.sx + y * this.sx * this.sz;
   }
 
   /** Expands up to `max` states. */
@@ -138,7 +147,8 @@ export class AStar {
         this.goalNode = n;
         return (this.status = 'found');
       }
-      const x = cell % SX, z = Math.floor(cell / SX) % SZ, y = Math.floor(cell / (SX * SZ));
+      const sx = this.sx, sz = this.sz;
+      const x = cell % sx, z = Math.floor(cell / sx) % sz, y = Math.floor(cell / (sx * sz));
       this.cur = n;
       this.curG = ns.g[n];
       this.curBlocks = blocks;
@@ -148,8 +158,8 @@ export class AStar {
   }
 
   private relax: MoveSink = (x, y, z, cost, kind, used) => {
-    if (x < 0 || y < 0 || z < 0 || x >= SX || y >= SY || z >= SZ) return;
-    const cell = cellId(x, y, z);
+    if (x < 0 || y < 0 || z < 0 || x >= this.sx || y >= this.sy || z >= this.sz) return;
+    const cell = this.cellId(x, y, z);
     const blocks = this.curBlocks - used;
     const key = cell * this.stride + blocks;
     const ns = this.nodes;

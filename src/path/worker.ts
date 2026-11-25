@@ -29,6 +29,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     if (job?.id === msg.id) job = null;
     return;
   }
+  const [sx, sy, sz] = msg.dims;
+  if (sx !== world.sx || sy !== world.sy || sz !== world.sz) world.reshape(sx, sy, sz);
   world.data.set(msg.data);
   const start = performance.now();
   const astar = new AStar(world, msg.start, msg.goal, msg.weight, msg.blocks, msg.pruneDominated);

@@ -1,15 +1,16 @@
 import { canStand } from '../path/moves';
 import type { Vec3i } from '../path/protocol';
-import { SX, SY, SZ, type World } from '../world/world';
+import type { World } from '../world/world';
 
 /** Highest standable cell in a column, or null. */
 export function topStand(world: World, x: number, z: number): Vec3i | null {
-  for (let y = SY - 2; y >= 1; y--) if (canStand(world, x, y, z)) return [x, y, z];
+  for (let y = world.sy - 2; y >= 1; y--) if (canStand(world, x, y, z)) return [x, y, z];
   return null;
 }
 
 /** A sensible default: goal on the highest point, start as far from it as possible. */
 export function defaultSpawn(world: World): { start: Vec3i; goal: Vec3i } {
+  const { sx: SX, sz: SZ } = world;
   let goal: Vec3i = [SX / 2, 1, SZ / 2];
   let bestY = -1;
   const cols: Vec3i[] = [];

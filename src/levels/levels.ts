@@ -44,7 +44,7 @@ function slab(world: World, cx: number, cz: number, rx: number, rz: number, top 
 }
 
 function begin(world: World): void {
-  world.data.fill(Mat.Air);
+  world.reset();
 }
 
 function finish(world: World, start: Vec3i, goal: Vec3i): { start: Vec3i; goal: Vec3i } {

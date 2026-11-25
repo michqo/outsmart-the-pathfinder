@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { grassFaces, type GrassStyle, type Palette } from '../palette';
 import { MAT_KEYS } from '../world/materials';
 import { COLOR_KINDS, COLOR_TABLE_SIZE, meshChunk, type MeshData, type MeshOptions } from '../world/mesher';
-import { CHUNK_COUNT, CX, CZ, World } from '../world/world';
+import type { World } from '../world/world';
 
 /** Owns one opaque + one water mesh per chunk and rebuilds only dirty chunks. */
 export class ChunkRenderer {
@@ -18,9 +18,11 @@ export class ChunkRenderer {
   };
   stats = { lastRebuildMs: 0, triangles: 0 };
 
-  private opaque: (THREE.Mesh | null)[] = new Array(CHUNK_COUNT).fill(null);
-  private water: (THREE.Mesh | null)[] = new Array(CHUNK_COUNT).fill(null);
-  private tris = new Int32Array(CHUNK_COUNT);
+  private opaque: (THREE.Mesh | null)[] = [];
+  private water: (THREE.Mesh | null)[] = [];
+  private tris = new Int32Array(0);
+  /** The world.shapeVersion the per-chunk arrays are sized for. */
+  private shape = -1;
   private palette: { p: Palette; grass: GrassStyle } | null = null;
   /** Realistic materials, when the style is on (set by setRealistic). */
   private real: { terrain: THREE.Material; water: THREE.Material } | null = null;
@@ -110,14 +112,16 @@ export class ChunkRenderer {
 
   /** Rebuilds dirty chunks. Returns how many were rebuilt. */
   update(): number {
-    const dirty = this.world.dirty;
+    const w = this.world;
+    if (this.shape !== w.shapeVersion) this.resize();
+    const dirty = w.dirty;
     if (dirty.size === 0) return 0;
     const t0 = performance.now();
     let count = 0;
     for (const ci of dirty) {
-      const cx = ci % CX;
-      const cz = Math.floor(ci / CX) % CZ;
-      const cy = Math.floor(ci / (CX * CZ));
+      const cx = ci % w.cx;
+      const cz = Math.floor(ci / w.cx) % w.cz;
+      const cy = Math.floor(ci / (w.cx * w.cz));
       const { opaque, water } = meshChunk(this.world, cx, cy, cz, this.opts);
       this.opaque[ci] = this.swap(this.opaque[ci], opaque, this.solidMaterial(), true);
       this.water[ci] = this.swap(this.water[ci], water, this.liquidMaterial(), false);
@@ -129,6 +133,21 @@ export class ChunkRenderer {
     this.stats.lastRebuildMs = performance.now() - t0;
     this.stats.triangles = this.tris.reduce((a, b) => a + b, 0);
     return count;
+  }
+
+  /** The window changed size: drop every chunk mesh and size the arrays to the new chunk grid. */
+  private resize(): void {
+    for (const m of [...this.opaque, ...this.water]) {
+      if (!m) continue;
+      this.group.remove(m);
+      m.geometry.dispose();
+    }
+    const n = this.world.chunkCount;
+    this.opaque = new Array(n).fill(null);
+    this.water = new Array(n).fill(null);
+    this.tris = new Int32Array(n);
+    this.shape = this.world.shapeVersion;
+    this.world.markAllDirty();
   }
 
   private swap(old: THREE.Mesh | null, data: MeshData, mat: THREE.Material, solid: boolean): THREE.Mesh | null {

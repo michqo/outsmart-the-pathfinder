@@ -5,7 +5,7 @@ import { generateRiftworks, RIFTWORKS_BLOCKS, RIFTWORKS_SEED } from '../src/leve
 import { AStar } from '../src/path/astar';
 import { isSolid, MoveKind } from '../src/path/moves';
 import { Mat } from '../src/world/materials';
-import { World, voxelIndex } from '../src/world/world';
+import { DEFAULT_DIMS as D, World, voxelIndex } from '../src/world/world';
 
 describe('Algorithm Duel', () => {
   it('Dijkstra finds the same minimum cost as A* but expands more states on the tutorial', () => {
@@ -39,7 +39,7 @@ describe('Algorithm Duel', () => {
   it('does not count a planned route that runs out of blocks', () => {
     const world = new World();
     world.set(2, 1, 2, Mat.Stone);
-    const nodes = Int32Array.of(voxelIndex(2, 2, 2), voxelIndex(3, 2, 2), voxelIndex(4, 2, 2));
+    const nodes = Int32Array.of(voxelIndex(D, 2, 2, 2), voxelIndex(D, 3, 2, 2), voxelIndex(D, 4, 2, 2));
     const kinds = Uint8Array.of(MoveKind.Start, MoveKind.Bridge, MoveKind.Bridge);
     expect(reachesFlag(world, { nodes, kinds, cost: 6 }, 2)).toBe(true);
     expect(reachesFlag(world, { nodes, kinds, cost: 6 }, 1)).toBe(false);
@@ -56,6 +56,7 @@ describe('Algorithm Duel', () => {
     for (const seed of [0, 1, RIFTWORKS_SEED, 99, 0xffffffff]) {
       generateRiftworks(a, seed);
       const walkOnly = {
+        sx: a.sx, sy: a.sy, sz: a.sz,
         get(x: number, y: number, z: number) {
           const m = a.get(x, y, z);
           return isSolid(m) ? Mat.Crystal : m;

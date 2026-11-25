@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CLOSED_FLAG } from '../path/astar';
-import { SX, SY, SZ } from '../world/world';
+import { DEFAULT_DIMS, type Dims } from '../world/world';
 
 export const VIZ_STYLES = { Glow: 'glow', Sparks: 'sparks', Tiles: 'tiles' } as const;
 export type VizStyle = (typeof VIZ_STYLES)[keyof typeof VIZ_STYLES];
@@ -25,7 +25,11 @@ export class SearchViz {
   private geo = new THREE.InstancedBufferGeometry();
   private offsets = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 3), 3);
   private times = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 2), 2);
-  private slotOf = new Int32Array(SX * SY * SZ).fill(-1);
+  /** The window that event cell ids index into (set by `reset`). */
+  private dims: Dims = DEFAULT_DIMS;
+  private slotOf = new Int32Array(DEFAULT_DIMS.sx * DEFAULT_DIMS.sy * DEFAULT_DIMS.sz).fill(-1);
+  /** Cell id shown in each slot, so a reset only clears what was used. */
+  private slotCell = new Int32Array(CAPACITY);
   private used = 0;
   private queue: Uint32Array[] = [];
   private qi = 0; // index into queue[0]
@@ -117,12 +121,12 @@ export class SearchViz {
     return this.done && this.played >= this.known;
   }
 
-  reset(): void {
-    for (let i = 0; i < this.used; i++) {
-      const id = Math.round(this.offsets.getX(i) - 0.5) + Math.round(this.offsets.getZ(i) - 0.5) * SX +
-        Math.round(this.offsets.getY(i)) * SX * SZ;
-      this.slotOf[id] = -1;
-    }
+  /** Clears the view; pass the window the next search runs in when it may have changed size. */
+  reset(dims?: Dims): void {
+    if (dims && (dims.sx !== this.dims.sx || dims.sy !== this.dims.sy || dims.sz !== this.dims.sz)) {
+      this.dims = { sx: dims.sx, sy: dims.sy, sz: dims.sz };
+      this.slotOf = new Int32Array(dims.sx * dims.sy * dims.sz).fill(-1);
+    } else for (let i = 0; i < this.used; i++) this.slotOf[this.slotCell[i]] = -1;
     this.used = 0;
     this.geo.instanceCount = 0;
     this.queue = [];
@@ -190,7 +194,9 @@ export class SearchViz {
         if (slot < 0) {
           if (this.used >= CAPACITY) continue;
           slot = this.slotOf[id] = this.used++;
-          const x = id % SX, z = Math.floor(id / SX) % SZ, y = Math.floor(id / (SX * SZ));
+          this.slotCell[slot] = id;
+          const { sx, sz } = this.dims;
+          const x = id % sx, z = Math.floor(id / sx) % sz, y = Math.floor(id / (sx * sz));
           off[slot * 3] = x + 0.5;
           off[slot * 3 + 1] = y;
           off[slot * 3 + 2] = z + 0.5;

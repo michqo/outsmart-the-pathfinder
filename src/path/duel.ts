@@ -1,7 +1,7 @@
 import { PathRibbon } from '../render/pathRibbon';
 import type { Stage } from '../render/scene';
 import { SearchViz } from '../render/searchViz';
-import type { World } from '../world/world';
+import { DEFAULT_DIMS, type Dims, type World } from '../world/world';
 import { SearchClient, type DoneMsg } from './client';
 import type { Vec3i } from './protocol';
 
@@ -25,6 +25,8 @@ export class AlgorithmDuel {
   }));
   private results: (DoneMsg | null)[] = [null, null];
   private phase: 'idle' | 'searching' | 'revealing' | 'done' = 'idle';
+  /** The window the current results' cell ids index into. */
+  private dims: Dims = DEFAULT_DIMS;
 
   constructor(
     stage: Stage,
@@ -54,10 +56,12 @@ export class AlgorithmDuel {
 
   run(world: World, start: Vec3i, goal: Vec3i, blocks: number, opponent: DuelOpponent, revealSeconds: number): void {
     this.clear();
+    this.dims = { sx: world.sx, sy: world.sy, sz: world.sz };
     this.phase = 'searching';
     // Both workers copy the same world before the next player event can edit it.
     const jobs = [{ weight: 1, pruneDominated: false }, OPPONENTS[opponent]];
     this.lanes.forEach(({ client, viz }, i) => {
+      viz.reset(world);
       viz.duration = revealSeconds;
       client.search(world, start, goal, jobs[i].weight, blocks, {
         onProgress: (events) => viz.push(events),
@@ -97,7 +101,7 @@ export class AlgorithmDuel {
       lane.routeShown = true;
       const result = i === 0 ? baseline : opponent;
       viz.fadeTo(0.25, 0.65);
-      if (result.found) ribbon.show(result.nodes, result.kinds);
+      if (result.found) ribbon.show(this.dims, result.nodes, result.kinds);
     });
     if (!this.lanes.every(({ viz }) => viz.playbackDone)) return;
     this.phase = 'done';

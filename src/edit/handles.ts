@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { canStand } from '../path/moves';
 import type { Vec3i } from '../path/protocol';
 import type { Stage } from '../render/scene';
-import { SY, type World } from '../world/world';
+import type { World } from '../world/world';
 import { pickVoxel } from './pick';
 
 export interface Handle {
@@ -15,7 +15,7 @@ export interface Handle {
 
 /** The first spot in a column, at or above `y`, where the bot can stand. */
 export function standableAbove(world: World, x: number, y: number, z: number): Vec3i | null {
-  for (let yy = Math.max(1, y); yy < SY - 1; yy++) if (canStand(world, x, yy, z)) return [x, yy, z];
+  for (let yy = Math.max(1, y); yy < world.sy - 1; yy++) if (canStand(world, x, yy, z)) return [x, yy, z];
   return null;
 }
 

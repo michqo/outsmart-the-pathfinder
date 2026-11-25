@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MoveKind } from '../path/moves';
 import type { Vec3i } from '../path/protocol';
-import { voxelCoords } from '../world/world';
+import { voxelCoords, type Dims } from '../world/world';
 
 /** Seconds per motion. Falls add time per block. Work (digging, placing) comes before the motion. */
 const DURATION: Record<number, number> = {
@@ -65,7 +65,11 @@ export class Walker {
 
   constructor(private hooks: StepHooks) {}
 
-  start(nodes: Int32Array, kinds: Uint8Array): void {
+  /** The window the node ids index into. */
+  private dims: Dims = { sx: 1, sy: 1, sz: 1 };
+
+  start(dims: Dims, nodes: Int32Array, kinds: Uint8Array): void {
+    this.dims = { sx: dims.sx, sy: dims.sy, sz: dims.sz };
     this.nodes = nodes;
     this.kinds = kinds;
     this.i = 0;
@@ -92,7 +96,7 @@ export class Walker {
   currentCell(): Vec3i | null {
     if (!this.nodes.length) return null;
     const onTarget = !this.working && this.t > 0.5 && this.i + 1 < this.nodes.length;
-    return voxelCoords(this.nodes[onTarget ? this.i + 1 : this.i]);
+    return voxelCoords(this.dims, this.nodes[onTarget ? this.i + 1 : this.i]);
   }
 
   update(dt: number): void {
@@ -126,8 +130,8 @@ export class Walker {
   }
 
   private beginStep(): void {
-    this.a = voxelCoords(this.nodes[this.i]);
-    this.b = voxelCoords(this.nodes[this.i + 1]);
+    this.a = voxelCoords(this.dims, this.nodes[this.i]);
+    this.b = voxelCoords(this.dims, this.nodes[this.i + 1]);
     const kind = this.hooks.validate(this.a, this.b, this.kinds[this.i + 1]);
     if (kind < 0) {
       this.active = false;

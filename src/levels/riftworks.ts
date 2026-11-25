@@ -19,7 +19,7 @@ export function generateRiftworks(world: World, seed: number): { start: Vec3i; g
   const random = rng(seed);
   const roll = (n: number) => Math.floor(random() * n);
   const set = (x: number, y: number, z: number, m: Mat) => world.setRaw(x, y, z, m);
-  world.data.fill(Mat.Air);
+  world.reset();
 
   for (let z = RIM; z <= END; z++) for (let x = RIM; x <= END; x++) {
     const y = elevation(x);

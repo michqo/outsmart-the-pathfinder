@@ -32,7 +32,7 @@ import { BotView } from './render/bot';
 import { createTerrainMaterial, createWaterMaterial, VoxelTexture, type TerrainMaterial, type WaterMaterial } from './render/terrain';
 import { Mat } from './world/materials';
 import { generateStressLevel, generateTestIsland } from './world/testIsland';
-import { World } from './world/world';
+import { DEFAULT_DIMS, sameDims, World, type Dims } from './world/world';
 
 const settings: Settings = {
   style: 'realistic',
@@ -306,6 +306,14 @@ const pane = createPanel(settings, stats, {
   onRegenerate: () =>
     startLevel({ ...SANDBOXES[0], generate: (w) => (generateTestIsland(w, settings.seed), defaultSpawn(w)) }),
   onGauntlet: () => startLevel(levelById('gauntlet')!),
+  onBigIsland: () =>
+    startLevel({
+      ...SANDBOXES[0],
+      id: 'big-island',
+      name: 'Big island',
+      hint: 'A 128×48×128 window: the test island at twice the size.',
+      generate: (w) => (generateTestIsland(w, settings.seed, 2), defaultSpawn(w)),
+    }),
   onStress: () =>
     startLevel({
       ...SANDBOXES[0],
@@ -330,6 +338,8 @@ const pane = createPanel(settings, stats, {
 /** What's loaded: a level plus the exact world, spawn and rules it started from. */
 interface Course {
   level: Level;
+  /** The window size `world` was built for. */
+  dims: Dims;
   world: Uint8Array;
   start: Vec3i;
   goal: Vec3i;
@@ -457,17 +467,31 @@ function onRunEnd(arrived: boolean, nodes: number, edited: boolean): void {
 function startLevel(level: Level, dare = 0): void {
   const sp = level.generate(world);
   if (level.seed !== undefined) opponent = 'pareto';
-  applyCourse({ level, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare }, level.seed !== undefined);
+  applyCourse({ level, dims: { sx: world.sx, sy: world.sy, sz: world.sz }, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare }, level.seed !== undefined);
   if (LEVELS.includes(level)) setLastLevel(level.id);
+}
+
+/** Centres the window under the camera and fits the sun's shadow box and zoom-out to its size. */
+function fitStage(): void {
+  stage.island.position.set(-world.sx / 2, 0, -world.sz / 2); // mutated in place: the cloud shadows share it
+  const k = Math.max(world.sx, world.sz) / 64;
+  const sc = stage.sun.shadow.camera;
+  sc.left = sc.bottom = -55 * k;
+  sc.right = sc.top = 55 * k;
+  sc.far = 200 * k;
+  sc.updateProjectionMatrix();
+  stage.controls.maxDistance = 220 * k;
 }
 
 /** Puts a course's world, spawn and rules in place (also what Reset does). */
 function applyCourse(c: Course, compare = false): void {
   course = c;
   bot.forgetChanges();
+  if (!sameDims(world, c.dims)) world.reshape(c.dims.sx, c.dims.sy, c.dims.sz);
   world.data.set(c.world);
   world.version++;
   world.markAllDirty();
+  fitStage();
   history.clear();
   touched.clear();
   lastScore = sandboxBest = 0;
@@ -490,6 +514,10 @@ async function share(): Promise<void> {
   const { level } = course;
   const challenge = LEVELS.includes(level) || level === HEURISTIC_TRAP;
   const dare = level === HEURISTIC_TRAP ? 0 : challenge ? bestFor(level.id) : lastScore;
+  if (!challenge && !sameDims(world, DEFAULT_DIMS)) {
+    score.toast("Islands this big can't be shared yet");
+    return;
+  }
   const text = await encodeLevel({
     mode: challenge ? 'challenge' : 'sandbox',
     levelId: challenge ? level.id : level.seed === undefined ? '' : `riftworks:${level.seed}`,
@@ -534,7 +562,7 @@ async function openSharedCourse(): Promise<boolean> {
         hint: 'Someone built this for you. Run it, or change it and share it back.',
       };
       if (level.seed !== undefined) opponent = 'pareto';
-      applyCourse({ level, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare }, level.seed !== undefined);
+      applyCourse({ level, dims: DEFAULT_DIMS, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare }, level.seed !== undefined);
     }
     return true;
   } catch (err) {

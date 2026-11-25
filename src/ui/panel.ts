@@ -59,6 +59,7 @@ export interface PanelHandlers {
   onRegenerate(): void;
   onStress(): void;
   onGauntlet(): void;
+  onBigIsland(): void;
   onReveal(): void;
   onVizStyle(): void;
   onBotModel(): void;
@@ -108,6 +109,7 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   debug.addBinding(settings, 'seed', { min: 1, max: 99, step: 1 });
   debug.addButton({ title: 'Regenerate island' }).on('click', h.onRegenerate);
   debug.addButton({ title: 'Gauntlet (all moves)' }).on('click', h.onGauntlet);
+  debug.addButton({ title: 'Big island (128×48×128)' }).on('click', h.onBigIsland);
   debug.addButton({ title: 'Stress level (9 floors)' }).on('click', h.onStress);
 
   return pane;

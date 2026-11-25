@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Palette } from '../palette';
 import { Mat } from '../world/materials';
 import { fbm, valueNoise } from '../world/noise';
-import { SX, SY, SZ, World } from '../world/world';
+import type { World } from '../world/world';
 
 export interface RockMaps {
   map: THREE.Texture;
@@ -23,6 +23,7 @@ const MAX_DEPTH = 17;
  * few stalactite drips. ~8k triangles; with `rock` maps it gets the rock scan.
  */
 export function buildUnderside(world: World, palette: Palette, rock: RockMaps | null = null, seed = 3): THREE.Mesh {
+  const { sx: SX, sy: SY, sz: SZ } = world;
   // Lowest solid voxel per column (-1 = empty column).
   const bottom = new Int16Array(SX * SZ).fill(-1);
   for (let z = 0; z < SZ; z++)

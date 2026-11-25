@@ -1,5 +1,5 @@
 import type { Mat } from '../world/materials';
-import { voxelCoords, voxelIndex, type World } from '../world/world';
+import type { World } from '../world/world';
 
 /** One user action: flat triples of [voxelIndex, before, after]. */
 type Action = number[];
@@ -19,7 +19,7 @@ export class EditHistory {
       const before = world.get(x, y, z);
       if (before === m) return;
       world.set(x, y, z, m);
-      if (world.get(x, y, z) === m) action.push(voxelIndex(x, y, z), before, m);
+      if (world.get(x, y, z) === m) action.push(world.index(x, y, z), before, m);
     });
     this.lastCells = cellsOf(action);
     if (action.length) {
@@ -61,6 +61,6 @@ function cellsOf(a: Action): number[] {
 }
 
 function apply(world: World, index: number, m: number): void {
-  const [x, y, z] = voxelCoords(index);
+  const [x, y, z] = world.coords(index);
   world.set(x, y, z, m as Mat);
 }

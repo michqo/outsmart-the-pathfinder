@@ -46,7 +46,7 @@ export class SearchClient {
     this.currentId++;
     this.handlers = handlers;
     const data = world.data.slice();
-    const msg: ToWorker = { type: 'search', id: this.currentId, data, start, goal, weight, blocks, version: world.version, ...options };
+    const msg: ToWorker = { type: 'search', id: this.currentId, data, dims: [world.sx, world.sy, world.sz], start, goal, weight, blocks, version: world.version, ...options };
     this.worker.postMessage(msg, [data.buffer]);
   }
 

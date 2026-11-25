@@ -10,7 +10,7 @@ const TOP = 8; // slab top; feet stand at TOP + 1
  * swim a moat → dig through a clay wall → bridge a chasm → pillar up a crystal cliff.
  */
 export function generateGauntlet(world: World): { start: Vec3i; goal: Vec3i } {
-  world.data.fill(Mat.Air);
+  world.reset();
   const set = (x: number, y: number, z: number, m: Mat) => world.setRaw(x, y, z, m);
 
   for (let x = 6; x <= 58; x++)

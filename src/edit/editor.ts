@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Stage } from '../render/scene';
 import { ignoreGameShortcut } from '../ui/modal';
 import { Mat } from '../world/materials';
-import { inBounds, SX, SY, SZ, type World } from '../world/world';
+import type { World } from '../world/world';
 import type { EditHistory } from './history';
 import { pickVoxel, type Hit } from './pick';
 
@@ -239,7 +239,7 @@ export class Editor {
     if (remove) return new THREE.Vector3(h.x, h.y, h.z);
     if (h.nx === 0 && h.ny === 0 && h.nz === 0) return null;
     const c = new THREE.Vector3(h.x + h.nx, h.y + h.ny, h.z + h.nz);
-    return inBounds(c.x, c.y, c.z) ? c : null;
+    return this.world.contains(c.x, c.y, c.z) ? c : null;
   }
 
   /**
@@ -262,7 +262,7 @@ export class Editor {
     if (!wall) hit.y = from.y;
     else if (normal.x) hit.x = from.x;
     else hit.z = from.z;
-    hit.clamp(new THREE.Vector3(0, 0, 0), new THREE.Vector3(SX - 1, SY - 1, SZ - 1));
+    hit.clamp(new THREE.Vector3(0, 0, 0), new THREE.Vector3(this.world.sx - 1, this.world.sy - 1, this.world.sz - 1));
     this.fillTo.copy(hit);
   }
 

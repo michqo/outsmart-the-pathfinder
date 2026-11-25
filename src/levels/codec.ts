@@ -1,6 +1,6 @@
 import type { Vec3i } from '../path/protocol';
 import { MAT_COUNT } from '../world/materials';
-import { inBounds, SX, SY, SZ } from '../world/world';
+import { DEFAULT_DIMS, inBounds, SX, SY, SZ } from '../world/world';
 
 /**
  * Share links: everything needed to replay a course, packed into the URL hash.
@@ -120,7 +120,7 @@ export async function decodeLevel(text: string): Promise<SharedLevel> {
   const mode = bytes[1] === 1 ? 'challenge' : 'sandbox';
   const start: Vec3i = [bytes[2], bytes[3], bytes[4]];
   const goal: Vec3i = [bytes[5], bytes[6], bytes[7]];
-  if (!inBounds(...start) || !inBounds(...goal)) throw new Error('start/goal out of bounds');
+  if (!inBounds(DEFAULT_DIMS, ...start) || !inBounds(DEFAULT_DIMS, ...goal)) throw new Error('start/goal out of bounds');
   const idLen = bytes[14];
   if (15 + idLen > bytes.length) throw new Error('truncated');
   const levelId = new TextDecoder().decode(bytes.subarray(15, 15 + idLen));

@@ -150,6 +150,44 @@ Review together: the look, the feel, performance, and whether the move-rule appr
 
 **Algorithm Duel:** compare A* with Dijkstra, Weighted A*, or Pareto A* on the same snapshot. The traces play at a shared event rate; the scoreboard reports worker compute time separately. Riftworks generates a 36-room maze from a seed, with a connected route and dig, swim, or bridge shortcuts. Pareto A* prunes costlier arrivals that leave fewer blocks; on seed 47 it expands 4,394 states vs. 15,948 for A*, with the same planned cost. Heuristic Trap is a separate six-edit puzzle. Duel routes are verified on independent world copies. D* Lite and the search inspector remain follow-ups.
 
+## Next: the Archipelago (proposed 2026-11-25)
+
+**Choices:** an endless seeded sky of floating islands (the archipelago); a generator that prioritises **search-aware tuning**, **erosion + rivers/lakes** and **biomes + structures**; generated islands **replace the hand-made levels**.
+
+**The idea:** every island is a level. The archipelago grows outward from a small home island; difficulty rises with distance from home. Earning ★ on an island grows a bridge to its neighbours, so progress shows on the map. A seed defines the whole archipelago, so there's a daily seed, a seed box and Random, and every island is reproducible.
+
+### Key design
+
+- **Course window.** The sky is stored sparsely (16³ chunks in a map), but a run only ever happens on one island. The active island's bounding box (≤ 128×48×128 plus a margin) is copied into a dense array with an offset, and A*, the worker, the search viz, the voxel texture and the bot keep working on that window as they do today. This keeps the proven code and bounds every search.
+- **Islands in the sky.** Layout = a seeded jittered grid (about 160 units per cell, 0–1 island each, varied size 32–112 and height). Home island at the origin, ring number = difficulty tier.
+- **Generator pipeline (per island, in a worker, deterministic integer-hash noise, versioned):**
+  1. Shape: a domain-warped island mask, so outlines aren't blobs.
+  2. Heightmap + **hydraulic erosion** (particle droplets) for gullies, valleys and fans.
+  3. **Water:** flow accumulation carves rivers; basins fill into lakes (swim-cost decisions).
+  4. **Biomes** from temperature/moisture: meadow (moss/clay), highlands (slate, slow digs), crystal fields (undiggable walls), wetlands (water), badlands (clay mesas). The material mix changes move costs, so each biome plays differently.
+  5. **Structures:** template + wave-function-collapse pieces (ruins, gates, maze rooms). Riftworks becomes one of these.
+  6. Underside rock as today, per island.
+- **Search-aware tuning** (the part only this game has). After generating, the worker:
+  - picks start/flag pairs that score as interesting: path cost vs straight line, nodes per step (heuristic deception), moves required (swim, dig, bridge, pillar), and a guaranteed path with the given blocks;
+  - sets the edit budget and block count from the tier;
+  - runs the hill-climb calibrator (moved out of the test into the worker, time-boxed) to set ★/★★/★★★.
+
+  Shown as a short "Surveying the island…" moment when you first land; results are cached per island (IndexedDB) and can be regenerated deterministically.
+- **Rendering:** stream chunks around the camera; distant islands as low-detail meshes (2×/4× downsampled) fading into the haze; camera "travel" between islands (pick an island on a map or follow a bridge).
+- **Share links v2:** generator version + archipelago seed + island id + your edits as a diff (small). v1 links keep working: the retired hand-made levels stay in the code only to decode old links.
+- **Progress:** best and stars per `seed:island`; the old per-level bests are kept but hidden.
+- **What stays:** Algorithm Duel works on any island; sandbox Free build stays for unlimited building.
+
+### Milestones
+
+- **M7 — Chunked world + course window:** a sparse chunk store for the sky, a dense window for the active island, with A*, worker, viz, voxel texture, bot and editor all running in window space. No visible change; current levels run on it. Tests: window copy/offset round-trip, A* identical on window vs. old world.
+- **M8 — Island generator v2:** shape → erosion → rivers/lakes → biomes → underside, in a worker, deterministic per (seed, island, version). Golden-hash tests for determinism; timing budget about 150 ms per island on desktop. Previewable in Free build with a seed box.
+- **M9 — Search-aware tuning:** start/flag selection, budget/blocks by tier, ★ calibration in the worker. Tests: every tuned island is solvable, untouched < ★, ★★★ reachable by the calibrator.
+- **M10 — The archipelago:** streaming + LOD, the map/island picker, camera travel, bridges as progress, daily seed / seed box / Random, links v2 + legacy decode, the level list replaced.
+- **M11 — Structures + polish:** WFC ruins/gates/mazes, biome-specific detail, iPhone performance pass, first-visit flow on the home island.
+
+**Open questions (asked when we get there):** island size range on phones; whether bridges need ★ or ★★; whether the daily seed gets a fixed difficulty curve.
+
 ## Risks & mitigations
 
 | Risk | Mitigation |
