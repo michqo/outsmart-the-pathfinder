@@ -39,11 +39,19 @@ export class SearchViz {
     uSize: { value: 0.3 },
     uLift: { value: 0.4 },
     uGlobal: { value: 1 },
+    uLane: { value: 0 },
+    uFrontier: { value: new THREE.Color().setRGB(0.1, 0.85, 1) },
+    uClosed: { value: new THREE.Color().setRGB(0.3, 0.38, 0.95) },
   };
   private globalTarget = 1;
   private globalSpeed = 1;
 
-  constructor(style: VizStyle) {
+  constructor(style: VizStyle, lane = 0, colors?: [frontier: number, closed: number]) {
+    this.uniforms.uLane.value = lane;
+    if (colors) {
+      this.uniforms.uFrontier.value.setHex(colors[0]);
+      this.uniforms.uClosed.value.setHex(colors[1]);
+    }
     this.offsets.setUsage(THREE.DynamicDrawUsage);
     this.times.setUsage(THREE.DynamicDrawUsage);
     this.mesh = new THREE.Mesh(
@@ -56,7 +64,8 @@ export class SearchViz {
         vertexShader: /* glsl */ `
           attribute vec3 aOffset;
           attribute vec2 aTimes; // x: opened at, y: closed at (<0 = still open)
-          uniform float uTime, uFade, uSize, uLift, uGlobal;
+          uniform float uTime, uFade, uSize, uLift, uGlobal, uLane;
+          uniform vec3 uFrontier, uClosed;
           varying vec3 vColor;
           varying float vAlpha;
           void main() {
@@ -66,12 +75,11 @@ export class SearchViz {
             float isClosed = step(0.0, aTimes.y) * step(aTimes.y, uTime);
             float tc = isClosed * clamp((uTime - aTimes.y) / uFade, 0.0, 1.0);
             float pulse = 0.82 + 0.18 * sin(uTime * 7.0 + aOffset.x * 0.9 + aOffset.z * 0.6);
-            vec3 frontier = vec3(0.1, 0.85, 1.0) * pulse + vec3(0.5) * (1.0 - pop);
-            vec3 closed = vec3(0.3, 0.38, 0.95);
-            vColor = mix(frontier, closed, tc);
+            vec3 frontier = uFrontier * pulse + vec3(0.5) * (1.0 - pop);
+            vColor = mix(frontier, uClosed, tc);
             vAlpha = shown * mix(1.0, 0.4, tc) * uGlobal;
             float s = uSize * pop * mix(1.1, 0.7, tc);
-            vec3 p = aOffset + vec3(0.0, uLift, 0.0) + position * s;
+            vec3 p = aOffset + vec3(uLane, uLift, 0.0) + position * s;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
           }`,
         fragmentShader: /* glsl */ `
@@ -142,10 +150,14 @@ export class SearchViz {
     this.known += events.length;
   }
 
-  /** The search finished: play what's left over the rest of the reveal time. */
-  finish(): void {
+  get eventCount(): number {
+    return this.known;
+  }
+
+  /** A duel supplies a shared playback rate instead of fitting each trace to its own duration. */
+  finish(sharedRate?: number): void {
     this.done = true;
-    this.rate = this.duration > 0 ? Math.max(1, this.known / this.duration) : Infinity;
+    this.rate = sharedRate ?? (this.duration > 0 ? Math.max(1, this.known / this.duration) : Infinity);
   }
 
   update(time: number, dt: number): void {

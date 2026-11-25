@@ -148,6 +148,8 @@ Review together: the look, the feel, performance, and whether the move-rule appr
 - [ ] Deploy a Vercel Preview (Vite, Node.js 24.x, `npm run build`, `dist`).
 - [ ] Smoke-test first visit, touch input, live replanning, score persistence and both share link types on desktop Chrome and real iPhone Safari. Promote, then repeat the smoke check on production.
 
+**Algorithm Duel:** compare A* with Dijkstra, Weighted A*, or Pareto A* on the same snapshot. The traces play at a shared event rate; the scoreboard reports worker compute time separately. Riftworks generates a 36-room maze from a seed, with a connected route and dig, swim, or bridge shortcuts. Pareto A* prunes costlier arrivals that leave fewer blocks; on seed 47 it expands 4,394 states vs. 15,948 for A*, with the same planned cost. Heuristic Trap is a separate six-edit puzzle. Duel routes are verified on independent world copies. D* Lite and the search inspector remain follow-ups.
+
 ## Risks & mitigations
 
 | Risk | Mitigation |

@@ -3,10 +3,11 @@ import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
 import { Handles } from './edit/handles';
 import { courseFromHash, decodeLevel, encodeLevel, HASH_KEY } from './levels/codec';
-import { LEVELS, levelById, SANDBOXES, type Level } from './levels/levels';
+import { HEURISTIC_TRAP, LEVELS, levelById, riftworksLevel, SANDBOXES, type Level } from './levels/levels';
 import { bestFor, bestScores, lastLevel, recordScore, setLastLevel } from './levels/progress';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
+import { AlgorithmDuel, type DuelOpponent } from './path/duel';
 import { openLevelsDialog, ScorePanel } from './ui/scorePanel';
 import { Sfx } from './audio/sfx';
 import { Corner } from './ui/corner';
@@ -129,8 +130,8 @@ const bot = new BotController(
 
 // Handles first: their capture listener must run before the editor's.
 new Handles(stage, world, [
-  { object: bot.bot.root, onDrop: (c) => canMoveSpawn() && bot.setStart(c), cell: () => bot.home },
-  { object: bot.goalMarker.root, onDrop: (c) => canMoveSpawn() && bot.setGoal(c), cell: () => bot.goal },
+  { object: bot.bot.root, onDrop: (c) => moveSpawn(c, true), cell: () => bot.home },
+  { object: bot.goalMarker.root, onDrop: (c) => moveSpawn(c, false), cell: () => bot.goal },
 ]);
 
 const history = new EditHistory();
@@ -151,7 +152,8 @@ editor.onEdit = (cells) => {
   }
   if (cells.length) sfx.play(world.data[cells[0]] === Mat.Air ? 'remove' : 'place');
   scheduleUnderside();
-  bot.onWorldEdit(cells);
+  if (course.level !== HEURISTIC_TRAP) bot.onWorldEdit(cells);
+  if (cells.length > 0) invalidateDuel();
 };
 hotbar.onUndo = () => editor.undo();
 const follow = new FollowCam(stage, (out) => bot.followTarget(out));
@@ -275,7 +277,7 @@ function onLoaded(): void {
 
 const howTo = new HowTo();
 const corner = new Corner(sfx.muted, {
-  onRun: () => bot.run(),
+  onRun: runCurrentMode,
   onHelp: (opener) => howTo.open(undefined, opener),
   onMute: (m) => sfx.setMuted(m),
 });
@@ -319,6 +321,7 @@ const pane = createPanel(settings, stats, {
     if (course.level.budget !== null) return; // challenges fix the bot's blocks
     course.inventory = settings.inventory;
     bot.setInventory(settings.inventory);
+    invalidateDuel();
   },
 });
 
@@ -342,6 +345,9 @@ const touched = new Set<number>();
 /** Sandbox: the last arrival's score, if nothing was edited since (shared as the dare). */
 let lastScore = 0;
 let sandboxBest = 0;
+let duel: AlgorithmDuel | null = null;
+let duelActive = false;
+let opponent: DuelOpponent = 'dijkstra';
 
 const score = new ScorePanel({
   onLevels: (opener) =>
@@ -349,21 +355,76 @@ const score = new ScorePanel({
       clearHash();
       startLevel(l);
     }, opener),
-  onReset: () => applyCourse(course),
+  onReset: () => applyCourse(course, duelActive),
   onShare: () => void share(),
   onWeight: (w) => {
     if (course.level.budget !== null) return;
     course.weight = bot.weight = w;
     lastScore = 0;
   },
+  onDuelToggle: () => setDuelMode(!duelActive),
+  onOpponent: (next) => {
+    opponent = next;
+    duel?.clear();
+    score.setDuel(true, false, opponent);
+  },
+  onSeed: (seed) => {
+    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
+      score.toast('Enter a whole seed from 0 to 4,294,967,295.');
+      return;
+    }
+    clearHash();
+    startLevel(riftworksLevel(seed));
+  },
 });
 
-const canMoveSpawn = (): boolean => {
-  if (course.level.budget === null) return true;
-  sfx.play('denied');
-  score.toast('Start and flag are fixed in challenges.');
-  return false;
-};
+function moveSpawn(cell: Vec3i, start: boolean): boolean {
+  if (course.level.budget !== null) {
+    sfx.play('denied');
+    score.toast('Start and flag are fixed in challenges.');
+    return false;
+  }
+  const moved = start ? bot.setStart(cell) : bot.setGoal(cell);
+  if (moved) invalidateDuel();
+  return moved;
+}
+
+function setDuelMode(active: boolean): void {
+  const trap = course.level === HEURISTIC_TRAP;
+  duelActive = active || trap;
+  duel?.clear();
+  if (duelActive) bot.prepare();
+  hud.setVisible(!duelActive);
+  corner.setMode(duelActive);
+  wasBusy = false;
+  score.setDuel(duelActive, trap, trap ? 'weighted' : opponent);
+}
+
+function invalidateDuel(): void {
+  if (!duelActive) return;
+  duel?.clear();
+  score.setDuelStatus('Course changed. Press Run to compare again.');
+}
+
+function runCurrentMode(): void {
+  if (!duelActive) {
+    bot.run();
+    return;
+  }
+  bot.prepare();
+  score.setDuelStatus('Comparing searches on the same course…');
+  const comparisonError = (error: unknown) => {
+    console.error('Algorithm Duel could not run.', error);
+    score.setDuelStatus('Comparison failed. Press Run to try again.');
+  };
+  try {
+    duel ??= new AlgorithmDuel(stage, (results) => score.setDuelResults(results, course.level === HEURISTIC_TRAP), comparisonError);
+    duel.run(world, bot.home, bot.goal, bot.blocksTotal, course.level === HEURISTIC_TRAP ? 'weighted' : opponent, settings.revealSeconds);
+  } catch (error) {
+    duel?.clear();
+    comparisonError(error);
+  }
+}
 
 /** Recounts the budget after an edit. False = the edit went over it. */
 function countEdits(cells: number[]): boolean {
@@ -395,12 +456,13 @@ function onRunEnd(arrived: boolean, nodes: number, edited: boolean): void {
 
 function startLevel(level: Level, dare = 0): void {
   const sp = level.generate(world);
-  applyCourse({ level, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare });
-  if (level.budget !== null) setLastLevel(level.id);
+  if (level.seed !== undefined) opponent = 'pareto';
+  applyCourse({ level, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare }, level.seed !== undefined);
+  if (LEVELS.includes(level)) setLastLevel(level.id);
 }
 
 /** Puts a course's world, spawn and rules in place (also what Reset does). */
-function applyCourse(c: Course): void {
+function applyCourse(c: Course, compare = false): void {
   course = c;
   bot.forgetChanges();
   world.data.set(c.world);
@@ -420,16 +482,17 @@ function applyCourse(c: Course): void {
   score.setLevel(c.level, index >= 0 ? index : null, c.level.budget !== null ? bestFor(c.level.id) : 0, c.dare);
   score.setEdits(0, c.level.budget);
   score.setWeight(c.weight, c.level.budget === null);
+  setDuelMode(compare);
 }
 
 /** Copy link: challenges share the level and your best; sandboxes share the whole world. */
 async function share(): Promise<void> {
   const { level } = course;
-  const challenge = level.budget !== null && LEVELS.includes(level);
-  const dare = challenge ? bestFor(level.id) : lastScore;
+  const challenge = LEVELS.includes(level) || level === HEURISTIC_TRAP;
+  const dare = level === HEURISTIC_TRAP ? 0 : challenge ? bestFor(level.id) : lastScore;
   const text = await encodeLevel({
     mode: challenge ? 'challenge' : 'sandbox',
-    levelId: challenge ? level.id : '',
+    levelId: challenge ? level.id : level.seed === undefined ? '' : `riftworks:${level.seed}`,
     world: challenge ? null : bot.courseSnapshot(),
     start: bot.home,
     goal: bot.goal,
@@ -458,17 +521,20 @@ async function openSharedCourse(): Promise<boolean> {
   try {
     const s = await decodeLevel(text);
     if (s.mode === 'challenge') {
-      const level = LEVELS.find((l) => l.id === s.levelId);
-      if (!level) throw new Error(`unknown level ${s.levelId}`);
+      const level = levelById(s.levelId);
+      if (!level || level.budget === null) throw new Error(`unknown challenge ${s.levelId}`);
       startLevel(level, s.dare);
     } else {
-      const level: Level = {
+      const seeded = /^riftworks:(\d{1,10})$/.exec(s.levelId);
+      const seed = seeded ? Number(seeded[1]) : NaN;
+      const level: Level = seed <= 0xffffffff ? riftworksLevel(seed) : {
         ...SANDBOXES[0],
         id: 'shared',
         name: 'Shared course',
         hint: 'Someone built this for you. Run it, or change it and share it back.',
       };
-      applyCourse({ level, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare });
+      if (level.seed !== undefined) opponent = 'pareto';
+      applyCourse({ level, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare }, level.seed !== undefined);
     }
     return true;
   } catch (err) {
@@ -486,7 +552,7 @@ window.addEventListener('hashchange', () => void openSharedCourse());
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Space' || ignoreGameShortcut(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
   e.preventDefault();
-  if (!e.repeat) bot.run();
+  if (!e.repeat) runCurrentMode();
 });
 
 // Dev-only handle for poking at the scene from the console.
@@ -513,7 +579,9 @@ stage.renderer.setAnimationLoop((time) => {
   }
   editor.update(dt);
   bot.update(dt, t);
-  if (bot.busy !== wasBusy) corner.setBusy((wasBusy = bot.busy));
+  duel?.update(dt, t);
+  const busy = duelActive ? duel?.busy ?? false : bot.busy;
+  if (busy !== wasBusy) corner.setBusy((wasBusy = busy));
   follow.update(dt);
   sky.update(t);
   stage.controls.update();

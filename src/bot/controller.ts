@@ -1,6 +1,6 @@
 import { standableAbove } from '../edit/handles';
 import { SearchClient, type DoneMsg } from '../path/client';
-import { canStand, HARDNESS, isMoveValid, isSwimSpot, MoveKind } from '../path/moves';
+import { canStand, HARDNESS, isSwimSpot, MoveKind } from '../path/moves';
 import type { Vec3i } from '../path/protocol';
 import { BotView, type BotModel } from '../render/bot';
 import { Effects } from '../render/effects';
@@ -14,6 +14,7 @@ import { voxelCoords, voxelIndex, type World } from '../world/world';
 import * as THREE from 'three';
 import { pathFootprint, stepFootprint, touching } from './pathTouch';
 import { Walker } from './walker';
+import { digCells, placeCell, resolveMove } from './route';
 import type { Sound } from '../audio/sfx';
 
 type Phase = 'idle' | 'searching' | 'revealing' | 'path' | 'walking' | 'bonk';
@@ -103,11 +104,11 @@ export class BotController {
     this.bot = new BotView(opts.model);
     this.viz = new SearchViz(opts.vizStyle);
     this.walker = new Walker({
-      validate: (a, b, k) => this.validate(a, b, k),
+      validate: (a, b, k) => resolveMove(this.world, a, b, k, this.blocksLeft),
       workTime: (a, b, k) => this.workTime(a, b, k),
       onWorkStart: (a, b, k, s) => this.startWork(a, b, k, s),
-      onMidMove: (a, _b, k) => {
-        if (k === MoveKind.Pillar) this.place(a);
+      onMidMove: (a, b, k) => {
+        if (k === MoveKind.Pillar) this.place(placeCell(a, b, k)!);
       },
       onStepDone: (i, k) => {
         this.ribbon.stepDone(i);
@@ -136,6 +137,12 @@ export class BotController {
 
   /** Space: put the course back the way you built it, then run it from home. */
   run(): void {
+    this.prepare();
+    this.search(this.home, 'searching');
+  }
+
+  /** Restore the player's course and bring the bot home without starting a search. */
+  prepare(): void {
     this.stopAll();
     this.restoreCourse();
     this.at = this.home;
@@ -144,7 +151,7 @@ export class BotController {
     this.editedDuringRun = false;
     this.placeIdle();
     this.faceGoal();
-    this.search(this.home, 'searching');
+    this.updateInventoryHud();
   }
 
   setStart(cell: Vec3i): boolean {
@@ -384,26 +391,9 @@ export class BotController {
 
   // ---------------------------------------------------------------- execution
 
-  /** Re-checks a planned step against the real world. A planned dig or bridge that's no longer needed becomes a plain move. */
-  private validate(a: Vec3i, b: Vec3i, kind: number): number {
-    const w = this.world;
-    if (isMoveValid(w, a, b, kind, this.blocksLeft)) return kind;
-    for (const k of [MoveKind.Walk, MoveKind.Diagonal, MoveKind.Swim, MoveKind.StepUp, MoveKind.Drop]) {
-      if (isMoveValid(w, a, b, k, this.blocksLeft)) return k;
-    }
-    return -1;
-  }
-
-  /** The cells a dig step removes. */
-  private digCells(a: Vec3i, b: Vec3i, kind: number): Vec3i[] {
-    if (kind === MoveKind.DigDown) return [[a[0], a[1] - 1, a[2]]];
-    if (kind !== MoveKind.Dig) return [];
-    return ([[b[0], b[1], b[2]], [b[0], b[1] + 1, b[2]]] as Vec3i[]).filter((c) => this.world.get(c[0], c[1], c[2]) !== Mat.Air);
-  }
-
   private workTime(a: Vec3i, b: Vec3i, kind: number): number {
     if (kind === MoveKind.Bridge) return PLACE_TIME;
-    const cells = this.digCells(a, b, kind);
+    const cells = digCells(this.world, a, b, kind);
     if (!cells.length) return 0;
     const hardness = cells.reduce((s, c) => s + HARDNESS[this.world.get(c[0], c[1], c[2])], 0);
     return DIG_BASE + DIG_PER_HARDNESS * hardness;
@@ -411,11 +401,11 @@ export class BotController {
 
   private startWork(a: Vec3i, b: Vec3i, kind: number, seconds: number): void {
     if (kind === MoveKind.Bridge) {
-      this.place([b[0], b[1] - 1, b[2]], seconds);
+      this.place(placeCell(a, b, kind)!, seconds);
       return;
     }
     this.bot.setMood('working');
-    for (const c of this.digCells(a, b, kind)) {
+    for (const c of digCells(this.world, a, b, kind)) {
       const m = this.world.get(c[0], c[1], c[2]);
       this.effects.drill(c, this.opts.colorOf(m), seconds, () => {
         this.setBlock(c, Mat.Air);

@@ -4,6 +4,7 @@ import { fbm } from '../world/noise';
 import { generateTestIsland } from '../world/testIsland';
 import type { World } from '../world/world';
 import { generateGauntlet } from './gauntlet';
+import { generateRiftworks, RIFTWORKS_BLOCKS, RIFTWORKS_SEED } from './riftworks';
 import { defaultSpawn } from './spawn';
 
 export interface Level {
@@ -23,6 +24,7 @@ export interface Level {
    * tests/levels.test.ts: about 0.6×, 1× and 1.5× what a scripted hill-climb reaches.
    */
   stars: [number, number, number] | null;
+  seed?: number;
 }
 
 const TOP = 8;
@@ -181,8 +183,44 @@ export const SANDBOXES: Level[] = [
   },
 ];
 
+export const HEURISTIC_TRAP: Level = {
+  id: 'heuristic-trap',
+  name: 'Heuristic Trap',
+  hint: 'Use up to 6 edits to make Weighted A* pay at least 2 more than A*. Both routes must reach the flag. Try the gap in the slate wall.',
+  inventory: 0,
+  weight: 1,
+  budget: 6,
+  stars: null,
+  generate(world) {
+    begin(world);
+    slab(world, 32, 32, 15, 11, TOP, 2);
+    box(world, 32, 32, TOP + 1, TOP + 3, 28, 31, Mat.Stone);
+    box(world, 32, 32, TOP + 1, TOP + 3, 33, 36, Mat.Stone);
+    return finish(world, [22, TOP + 1, 32], [42, TOP + 1, 32]);
+  },
+};
+
+export const TRAP_COST_GAP = 2;
+
+const RIFTWORKS_ID = 'riftworks';
+
+export function riftworksLevel(seed = RIFTWORKS_SEED): Level {
+  return {
+    id: RIFTWORKS_ID,
+    name: 'Riftworks',
+    hint: 'Explore 36 rooms across rising terraces. Dig through slate gates, cross flooded rooms, or spend blocks to bridge rifts.',
+    inventory: RIFTWORKS_BLOCKS,
+    weight: 1,
+    budget: null,
+    stars: null,
+    seed,
+    generate: (world) => generateRiftworks(world, seed),
+  };
+}
+
 export function levelById(id: string): Level | undefined {
-  return LEVELS.find((l) => l.id === id) ?? SANDBOXES.find((l) => l.id === id);
+  if (id === RIFTWORKS_ID) return riftworksLevel();
+  return id === HEURISTIC_TRAP.id ? HEURISTIC_TRAP : LEVELS.find((l) => l.id === id) ?? SANDBOXES.find((l) => l.id === id);
 }
 
 /** How many stars a score earns on a level (0..3). */

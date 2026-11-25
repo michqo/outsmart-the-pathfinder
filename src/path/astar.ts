@@ -80,7 +80,8 @@ class NodeStore {
 }
 
 /**
- * Weighted A* over (x, y, z, blocksLeft). Resumable: call step() repeatedly so a worker
+ * Weighted A* over (x, y, z, blocksLeft). A zero weight is Dijkstra's algorithm.
+ * Resumable: call step() repeatedly so a worker
  * can time-slice it. No per-node object allocation: everything lives in typed arrays.
  */
 export class AStar {
@@ -105,6 +106,7 @@ export class AStar {
     private goal: readonly [number, number, number],
     private weight = 1,
     blocks = 0,
+    private pruneDominated = false,
   ) {
     this.stride = blocks + 1;
     this.goalCell = cellId(goal[0], goal[1], goal[2]);
@@ -114,7 +116,7 @@ export class AStar {
     this.nodes.parent[n] = -1;
     this.nodes.kind[n] = MoveKind.Start;
     this.openCell(sc);
-    this.heap.push(n, this.weight * heuristic(start[0], start[1], start[2], goal[0], goal[1], goal[2]));
+    this.heap.push(n, this.estimate(...start));
   }
 
   /** Expands up to `max` states. */
@@ -125,10 +127,12 @@ export class AStar {
       if (heap.size === 0) return (this.status = 'failed');
       const n = heap.pop();
       if (ns.closed[n]) continue; // stale duplicate
-      ns.closed[n] = 1;
-      this.expanded++;
       const key = ns.key[n];
       const cell = Math.floor(key / stride);
+      const blocks = key - cell * stride;
+      ns.closed[n] = 1;
+      if (this.pruneDominated && this.dominated(cell, blocks, ns.g[n])) continue;
+      this.expanded++;
       this.pushEvent(cell | CLOSED_FLAG);
       if (cell === this.goalCell) {
         this.goalNode = n;
@@ -137,7 +141,7 @@ export class AStar {
       const x = cell % SX, z = Math.floor(cell / SX) % SZ, y = Math.floor(cell / (SX * SZ));
       this.cur = n;
       this.curG = ns.g[n];
-      this.curBlocks = key - cell * stride;
+      this.curBlocks = blocks;
       expandMoves(this.grid, x, y, z, this.curBlocks, this.relax);
     }
     return this.status;
@@ -146,9 +150,11 @@ export class AStar {
   private relax: MoveSink = (x, y, z, cost, kind, used) => {
     if (x < 0 || y < 0 || z < 0 || x >= SX || y >= SY || z >= SZ) return;
     const cell = cellId(x, y, z);
-    const key = cell * this.stride + (this.curBlocks - used);
+    const blocks = this.curBlocks - used;
+    const key = cell * this.stride + blocks;
     const ns = this.nodes;
-    const g = this.curG + cost;
+    const g = this.curG + (this.pruneDominated ? Math.round(cost * 100) : cost);
+    if (this.pruneDominated && this.dominated(cell, blocks, g)) return;
     let n = ns.find(key);
     if (n >= 0) {
       if (ns.closed[n] || g >= ns.g[n]) return;
@@ -159,9 +165,25 @@ export class AStar {
     ns.g[n] = g;
     ns.parent[n] = this.cur;
     ns.kind[n] = kind;
-    const gl = this.goal;
-    this.heap.push(n, g + this.weight * heuristic(x, y, z, gl[0], gl[1], gl[2]));
+    this.heap.push(n, g + this.estimate(x, y, z));
   };
+
+  private estimate(x: number, y: number, z: number): number {
+    if (this.weight === 0) return 0;
+    const h = heuristic(x, y, z, ...this.goal);
+    return this.weight * (this.pruneDominated ? Math.round(h * 100) : h);
+  }
+
+  // More blocks never disable a move. A cheaper arrival with more blocks can
+  // therefore replace this one on the fixed planning snapshot.
+  private dominated(cell: number, blocks: number, cost: number): boolean {
+    const first = cell * this.stride;
+    for (let key = first + blocks + 1; key < first + this.stride; key++) {
+      const n = this.nodes.find(key);
+      if (n >= 0 && this.nodes.g[n] <= cost) return true;
+    }
+    return false;
+  }
 
   /** Emits an "opened" event the first time a cell is seen (whatever the inventory). */
   private openCell(cell: number): void {
@@ -195,7 +217,7 @@ export class AStar {
     return {
       nodes: Int32Array.from(chain, (n) => Math.floor(ns.key[n] / this.stride)),
       kinds: Uint8Array.from(chain, (n) => ns.kind[n]),
-      cost: ns.g[this.goalNode],
+      cost: ns.g[this.goalNode] / (this.pruneDominated ? 100 : 1),
     };
   }
 

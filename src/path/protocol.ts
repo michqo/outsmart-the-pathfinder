@@ -1,7 +1,7 @@
 export type Vec3i = [number, number, number];
 
 export type ToWorker =
-  | { type: 'search'; id: number; data: Uint8Array; start: Vec3i; goal: Vec3i; weight: number; blocks: number; version: number }
+  | { type: 'search'; id: number; data: Uint8Array; start: Vec3i; goal: Vec3i; weight: number; blocks: number; version: number; verifyRoute?: boolean; pruneDominated?: boolean }
   | { type: 'cancel'; id: number };
 
 export type FromWorker =
@@ -13,8 +13,9 @@ export type FromWorker =
       nodes: Int32Array;
       kinds: Uint8Array;
       cost: number;
+      executable?: boolean;
       expanded: number;
-      /** Pure compute time inside the worker. */
+      /** Active worker time for search setup, expansion and path reconstruction. */
       ms: number;
       version: number;
     };

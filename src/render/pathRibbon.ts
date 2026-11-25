@@ -13,6 +13,8 @@ export class PathRibbon {
     uReveal: { value: 0 },
     uLen: { value: 1 },
     uFadeOut: { value: 1 },
+    uBase: { value: new THREE.Color().setRGB(1, 0.33, 0.52) },
+    uBright: { value: new THREE.Color().setRGB(1, 0.86, 0.35) },
     /** 1 = an abandoned path: grey-red, dashed, no chevrons. */
     uBroken: { value: 0 },
   };
@@ -29,16 +31,15 @@ export class PathRibbon {
       }`,
     fragmentShader: /* glsl */ `
       uniform float uTime, uReveal, uLen, uFadeOut, uBroken;
+      uniform vec3 uBase, uBright;
       varying vec2 vUv;
       void main() {
         if (vUv.x > uReveal) discard;
         float along = vUv.x * uLen;
         float around = abs(fract(vUv.y * 2.0) - 0.5) * 2.0;
         float chev = step(0.55, fract((along - around * 0.35 - uTime * 2.2) / 0.9));
-        vec3 base = vec3(1.0, 0.33, 0.52);
-        vec3 bright = vec3(1.0, 0.86, 0.35);
         float head = smoothstep(uReveal - 0.04, uReveal, vUv.x);
-        vec3 col = mix(base, bright, max(chev, head));
+        vec3 col = mix(uBase, uBright, max(chev, head));
         float a = 0.95;
         if (uBroken > 0.5) {
           if (fract(along / 0.6) > 0.55) discard; // dashed
@@ -62,6 +63,15 @@ export class PathRibbon {
   /** Dashed grey-red style for a path the bot gave up on (no dig / build markers). */
   broken = false;
 
+  constructor(
+    private comparison?: { base: number; bright: number; lift: number; order: number },
+  ) {
+    if (comparison) {
+      this.uniforms.uBase.value.setHex(comparison.base);
+      this.uniforms.uBright.value.setHex(comparison.bright);
+    }
+  }
+
   show(nodes: Int32Array, kinds: Uint8Array, revealSeconds = 0.5): void {
     this.clear();
     this.uniforms.uBroken.value = this.broken ? 1 : 0;
@@ -70,7 +80,7 @@ export class PathRibbon {
     let prev: THREE.Vector3 | null = null;
     for (let i = 0; i < nodes.length; i++) {
       const [x, y, z] = voxelCoords(nodes[i]);
-      const p = new THREE.Vector3(x + 0.5, y + LIFT, z + 0.5);
+      const p = new THREE.Vector3(x + 0.5, y + (this.comparison?.lift ?? LIFT), z + 0.5);
       if (prev && kinds[i] === MoveKind.StepUp) {
         pts.push(new THREE.Vector3((prev.x + p.x) / 2, p.y + 0.15, (prev.z + p.z) / 2));
       } else if (prev && kinds[i] === MoveKind.Drop) {
@@ -79,12 +89,12 @@ export class PathRibbon {
       pts.push(p);
       prev = p;
     }
-    if (!this.broken) this.addMarkers(nodes, kinds);
+    if (!this.broken && !this.comparison) this.addMarkers(nodes, kinds);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const len = curve.getLength();
-    const geo = new THREE.TubeGeometry(curve, Math.max(16, Math.ceil(len * 10)), 0.14, 8, false);
+    const geo = new THREE.TubeGeometry(curve, Math.max(16, Math.ceil(len * 10)), this.comparison ? 0.075 : 0.14, 8, false);
     this.mesh = new THREE.Mesh(geo, this.material);
-    this.mesh.renderOrder = 4;
+    this.mesh.renderOrder = this.comparison?.order ?? 4;
     this.group.add(this.mesh);
     this.uniforms.uLen.value = len;
     this.uniforms.uReveal.value = 0;

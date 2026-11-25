@@ -6,6 +6,7 @@ export type DoneMsg = Extract<FromWorker, { type: 'done' }>;
 export interface SearchHandlers {
   onProgress(events: Uint32Array, expanded: number): void;
   onDone(result: DoneMsg): void;
+  onError?(event: Event): void;
 }
 
 /** Main-thread handle on the search worker. One search at a time; starting a new one cancels the old. */
@@ -25,18 +26,27 @@ export class SearchClient {
         h.onDone(msg);
       }
     };
+    const fail = (event: Event) => {
+      const handler = this.handlers?.onError;
+      this.handlers = null;
+      handler?.(event);
+    };
+    this.worker.onerror = this.worker.onmessageerror = fail;
   }
 
   get busy(): boolean {
     return this.handlers !== null;
   }
 
-  search(world: World, start: Vec3i, goal: Vec3i, weight: number, blocks: number, handlers: SearchHandlers): void {
+  search(
+    world: World, start: Vec3i, goal: Vec3i, weight: number, blocks: number, handlers: SearchHandlers,
+    options: { verifyRoute?: boolean; pruneDominated?: boolean } = {},
+  ): void {
     this.cancel();
     this.currentId++;
     this.handlers = handlers;
     const data = world.data.slice();
-    const msg: ToWorker = { type: 'search', id: this.currentId, data, start, goal, weight, blocks, version: world.version };
+    const msg: ToWorker = { type: 'search', id: this.currentId, data, start, goal, weight, blocks, version: world.version, ...options };
     this.worker.postMessage(msg, [data.buffer]);
   }
 

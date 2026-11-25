@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { World } from '../world/world';
+import { reachesFlag } from '../bot/route';
 import { AStar } from './astar';
 import type { FromWorker, ToWorker } from './protocol';
 
@@ -12,6 +13,8 @@ interface Job {
   astar: AStar;
   version: number;
   computeMs: number;
+  verifyRoute: boolean;
+  blocks: number;
 }
 
 let job: Job | null = null;
@@ -27,7 +30,12 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     return;
   }
   world.data.set(msg.data);
-  job = { id: msg.id, astar: new AStar(world, msg.start, msg.goal, msg.weight, msg.blocks), version: msg.version, computeMs: 0 };
+  const start = performance.now();
+  const astar = new AStar(world, msg.start, msg.goal, msg.weight, msg.blocks, msg.pruneDominated);
+  job = {
+    id: msg.id, astar, version: msg.version, computeMs: performance.now() - start,
+    verifyRoute: msg.verifyRoute === true, blocks: msg.blocks,
+  };
   run();
 };
 
@@ -43,10 +51,12 @@ function run(): void {
   post({ type: 'progress', id: j.id, events, expanded: j.astar.expanded }, [events.buffer]);
 
   if (status === 'running') {
-    setTimeout(run, 0);
+    setTimeout(() => { if (job === j) run(); }, 0);
     return;
   }
+  const pathStart = performance.now();
   const p = j.astar.path();
+  j.computeMs += performance.now() - pathStart;
   const nodes = p?.nodes ?? new Int32Array(0);
   const kinds = p?.kinds ?? new Uint8Array(0);
   post(
@@ -57,6 +67,7 @@ function run(): void {
       nodes,
       kinds,
       cost: p?.cost ?? 0,
+      executable: j.verifyRoute ? !!p && reachesFlag(world, p, j.blocks) : undefined,
       expanded: j.astar.expanded,
       ms: j.computeMs,
       version: j.version,

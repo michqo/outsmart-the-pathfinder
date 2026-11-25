@@ -1,4 +1,5 @@
-import { starsFor, type Level } from '../levels/levels';
+import { HEURISTIC_TRAP, riftworksLevel, starsFor, TRAP_COST_GAP, type Level } from '../levels/levels';
+import { OPPONENTS, type DuelOpponent, type DuelResults } from '../path/duel';
 import { showModal } from './modal';
 
 const CSS = /* css */ `
@@ -39,6 +40,24 @@ const CSS = /* css */ `
 .sp .btns button:hover { background: #ddd6ef; }
 .sp .btns button.main { background: #3b3355; color: #fff; }
 .sp .btns button.main:hover { background: #4d4470; }
+.sp .duel-toggle { width: 100%; margin-top: 6px; min-height: 32px; border: 0; border-radius: 10px;
+  background: #ece8f4; color: inherit; font: inherit; cursor: pointer; }
+.sp .duel-toggle:hover { background: #ddd6ef; }
+.sp.in-duel { max-height: calc(100dvh - 132px); overflow-y: auto; }
+.sp .duel { margin-top: 8px; }
+.sp .duel label { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
+.sp .duel select { max-width: 100%; min-height: 30px; border-radius: 8px; border: 1px solid #c9c1db; font: inherit; color: inherit; }
+.sp .duel table { margin-top: 8px; width: 100%; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
+.sp .duel th, .sp .duel td { padding: 5px 3px; text-align: center; overflow-wrap: anywhere; }
+.sp .duel thead th { width: 34%; font-weight: 700; border-bottom: 2px solid #2380ff; }
+.sp .duel thead th:first-child { width: 32%; border-color: transparent; }
+.sp .duel thead th:last-child { border-color: #f17636; }
+.sp .duel tbody th { text-align: left; }
+.sp .duel .duel-status { margin: 8px 0 0; font-weight: 600; }
+.sp .duel .timing-note { margin: 4px 0; font-weight: 500; }
+.sp .seed-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+.sp .seed-form input { width: 7em; min-height: 28px; box-sizing: border-box; font: inherit; }
+.sp .seed-form button { min-height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: #ece8f4; color: inherit; font: inherit; cursor: pointer; }
 .sp .lv .tog { display: none; opacity: .5; }
 @media (max-width: 720px) {
   .sp { left: 10px; top: 58px; width: 214px; padding: 10px 12px; }
@@ -47,7 +66,10 @@ const CSS = /* css */ `
   .sp .lv small.kind { display: none; }
   .sp .score b { font-size: 22px; }
   .sp.min .lvhint, .sp.min .best, .sp.min .stars, .sp.min .bar, .sp.min .weight { display: none; }
+  .sp.min.in-duel .bar:not([hidden]) { display: block; }
   .sp.min .btns { margin-top: 8px; }
+  .sp .duel-toggle { min-height: 38px; }
+  .sp.in-duel { max-height: calc(100dvh - 78px); }
 }
 .sp-toast { position: fixed; left: 50%; top: 70px; z-index: 1100; transform: translate(-50%, -8px); padding: 8px 16px;
   border-radius: 12px; background: #3b3355; color: #fff; font: 600 13px/1.2 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
@@ -76,6 +98,9 @@ export interface ScorePanelHandlers {
   onShare(): void;
   onReset(): void;
   onWeight(w: number): void;
+  onDuelToggle(): void;
+  onOpponent(opponent: DuelOpponent): void;
+  onSeed(seed: number): void;
 }
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -98,14 +123,37 @@ export class ScorePanel {
     this.el.innerHTML = `
       <div class="lv"><b class="name"></b><small class="kind"></small><small class="tog">▾</small></div>
       <p class="lvhint"></p>
+      <form class="seed-form" hidden>
+        <label for="rift-seed">Seed</label><input id="rift-seed" name="seed" type="number" min="0" max="4294967295" required>
+        <button>Generate</button><button class="new-seed" type="button">Random</button>
+      </form>
+      <div class="regular-score">
       <div class="dare" hidden></div>
       <div class="score"><b class="nodes">–</b><span class="unit">nodes</span></div>
       <div class="best"><span class="bestv"></span><span class="note"></span></div>
       <div class="stars"></div>
+      </div>
       <div class="bar"><div class="row"><span>Edits</span><span class="editsv"></span></div><div class="track"><div class="fill"></div></div></div>
       <label class="weight"><div class="row"><span>A* weight</span><span class="wv"></span></div>
         <input type="range" min="1" max="5" step="0.1" value="1"></label>
-      <div class="btns"><button class="levels">Levels</button><button class="reset">Reset</button><button class="share main">Copy link</button></div>`;
+      <section class="duel" aria-label="Algorithm Duel" hidden>
+        <label class="opponent-label">Compare A* with
+          <select class="opponent"><option value="dijkstra">Dijkstra</option><option value="weighted">Weighted A* (5×)</option><option value="pareto">Pareto A*</option></select>
+        </label>
+        <p class="pareto-note timing-note" hidden>Pareto A* skips arrivals that cost more without saving blocks.</p>
+        <table aria-label="Algorithm Duel results">
+          <thead><tr><th></th><th scope="col">A* (blue)</th><th class="opponent-name" scope="col"></th></tr></thead>
+          <tbody>
+            <tr><th scope="row">States expanded</th><td class="a-states">–</td><td class="b-states">–</td></tr>
+            <tr><th scope="row">Plan cost</th><td class="a-cost">–</td><td class="b-cost">–</td></tr>
+            <tr><th scope="row">Compute</th><td class="a-ms">–</td><td class="b-ms">–</td></tr>
+          </tbody>
+        </table>
+        <p class="timing-note">Worker time, not animation. Both traces play at the same event rate.</p>
+        <p class="duel-status" role="status"></p>
+      </section>
+      <div class="btns"><button class="levels">Levels</button><button class="reset">Reset</button><button class="share main">Copy link</button></div>
+      <button class="duel-toggle" aria-pressed="false">Algorithm Duel</button>`;
     document.body.appendChild(this.el);
     this.toastEl.className = 'sp-toast';
     document.body.appendChild(this.toastEl);
@@ -119,6 +167,17 @@ export class ScorePanel {
     levels.onclick = () => h.onLevels(levels);
     this.q('.reset').onclick = () => h.onReset();
     this.q('.share').onclick = () => h.onShare();
+    this.q('.duel-toggle').onclick = () => h.onDuelToggle();
+    const opponent = this.q<HTMLSelectElement>('.opponent');
+    opponent.onchange = () => {
+      const value = opponent.value;
+      if (value === 'dijkstra' || value === 'weighted' || value === 'pareto') h.onOpponent(value);
+    };
+    this.q<HTMLFormElement>('.seed-form').onsubmit = (event) => {
+      event.preventDefault();
+      h.onSeed(this.q<HTMLInputElement>('#rift-seed').valueAsNumber);
+    };
+    this.q('.new-seed').onclick = () => h.onSeed(crypto.getRandomValues(new Uint32Array(1))[0]);
     const range = this.q<HTMLInputElement>('.weight input');
     range.oninput = () => {
       this.q('.wv').textContent = Number(range.value).toFixed(1);
@@ -132,8 +191,10 @@ export class ScorePanel {
     this.best = best;
     this.dare = dare;
     this.q('.name').textContent = level.name;
-    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : 'Sandbox';
+    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : level === HEURISTIC_TRAP ? 'Duel puzzle' : level.seed === undefined ? 'Sandbox' : 'Generated';
     this.q('.lvhint').textContent = level.hint;
+    this.q('.seed-form').hidden = level.seed === undefined;
+    this.q<HTMLInputElement>('#rift-seed').value = level.seed === undefined ? '' : String(level.seed);
     this.q('.nodes').textContent = '–';
     this.q('.score').classList.remove('miss');
     this.q('.unit').textContent = 'nodes';
@@ -159,6 +220,49 @@ export class ScorePanel {
     range.disabled = !editable;
     this.q('.wv').textContent = w.toFixed(1) + (editable ? '' : ' (fixed)');
     this.q('.weight').classList.toggle('locked', !editable);
+  }
+
+  setDuel(active: boolean, trap: boolean, opponent: DuelOpponent): void {
+    this.el.classList.toggle('in-duel', active);
+    const toggle = this.q<HTMLButtonElement>('.duel-toggle');
+    toggle.hidden = trap;
+    toggle.setAttribute('aria-pressed', String(active));
+    toggle.textContent = active ? 'Exit Algorithm Duel' : 'Algorithm Duel';
+    this.q('.regular-score').hidden = active;
+    this.q('.weight').hidden = active;
+    this.q('.duel').hidden = !active;
+    this.q('.opponent-label').hidden = trap;
+    this.q<HTMLSelectElement>('.opponent').value = opponent;
+    this.q('.pareto-note').hidden = opponent !== 'pareto';
+    const challenger = OPPONENTS[opponent];
+    this.q('.opponent-name').textContent = `${challenger.name}${opponent === 'weighted' ? ` ×${challenger.weight}` : ''} (orange)`;
+    this.setDuelStatus(trap ? `Goal: +${TRAP_COST_GAP} cost. Try filling the gap in the slate wall.` : 'Press Run to compare on the same course.');
+  }
+
+  setDuelStatus(message: string): void {
+    for (const cell of this.el.querySelectorAll('.duel td')) cell.textContent = '–';
+    this.q('.duel-status').textContent = message;
+  }
+
+  setDuelResults([a, b]: DuelResults, trap: boolean): void {
+    const cost = (r: DuelResults[number]) => !r.found ? 'No path' : `${r.cost.toFixed(2)}${r.executable ? '' : ' (blocked)'}`;
+    this.q('.a-states').textContent = fmt(a.expanded);
+    this.q('.b-states').textContent = fmt(b.expanded);
+    this.q('.a-cost').textContent = cost(a);
+    this.q('.b-cost').textContent = cost(b);
+    const ms = (time: number) => time < 0.05 ? '<0.05 ms' : `${time.toFixed(time < 1 ? 2 : 1)} ms`;
+    this.q('.a-ms').textContent = ms(a.ms);
+    this.q('.b-ms').textContent = ms(b.ms);
+    const gap = Math.round((b.cost - a.cost) * 100) / 100;
+    this.q('.duel-status').textContent = !a.executable || !b.executable
+      ? 'Both routes must reach the flag without replanning.'
+      : trap
+        ? gap >= TRAP_COST_GAP
+          ? `Trap sprung! Weighted A* paid ${gap.toFixed(2)} more.`
+          : `Cost gap: ${gap.toFixed(2)}. Aim for +${TRAP_COST_GAP}.`
+        : gap === 0
+          ? 'Same planned cost. Compare how many states each explored.'
+          : `Orange route costs ${Math.abs(gap).toFixed(2)} ${gap > 0 ? 'more' : 'less'}.`;
   }
 
   setResult(arrived: boolean, nodes: number, newBest: boolean, practice: boolean): void {
@@ -214,23 +318,25 @@ export function openLevelsDialog(
   opener?: HTMLElement,
 ): void {
   const back = document.createElement('dialog');
+  const riftworks = riftworksLevel();
   back.className = 'lvd-back';
   back.setAttribute('aria-labelledby', 'lvd-title');
   const card = (l: Level, i: number | null) => {
     const got = starsFor(l, best[l.id] ?? 0);
     const stars = l.stars ? `<span class="s">${'★'.repeat(got)}<span class="off">${'★'.repeat(3 - got)}</span></span>` : '';
-    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : 'No limits';
+    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : l.seed !== undefined ? 'Seeded maze · 36 rooms' : 'No limits';
     return `<button class="card${l.id === current ? ' on' : ''}" data-id="${l.id}"${l.id === current ? ' autofocus' : ''}>
       ${i !== null ? `<span class="n">Level ${i + 1}</span>` : ''}<b>${l.name}</b>${stars}<small>${sub}</small></button>`;
   };
   back.innerHTML = `<div class="lvd">
     <h2 id="lvd-title">Levels</h2><p>Make the bot think as hard as you can. For challenge stars, reach the flag without editing during the run.</p>
     <h3>Challenges</h3><div class="list">${levels.map((l, i) => card(l, i)).join('')}</div>
+    <h3>Algorithm Duel</h3><div class="list">${card(riftworks, null)}${card(HEURISTIC_TRAP, null)}</div>
     <h3>Sandbox</h3><div class="list">${sandboxes.map((l) => card(l, null)).join('')}</div></div>`;
   back.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.card');
     if (btn) {
-      const l = [...levels, ...sandboxes].find((x) => x.id === btn.dataset.id)!;
+      const l = [...levels, HEURISTIC_TRAP, riftworks, ...sandboxes].find((x) => x.id === btn.dataset.id)!;
       back.close();
       onPick(l);
     }

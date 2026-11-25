@@ -7,6 +7,8 @@ The bot isn't helpless. It can dig (slate is slow, crystal can't be dug), swim, 
 - **6 challenge levels** with edit budgets and ★★★ targets, plus free-build sandboxes
 - **Share links:** the whole course (or the level plus your best) packed into the URL, so you can dare a friend
 - **Weighted A\*** slider in sandboxes, to see how greed trades nodes for path quality
+- **Algorithm Duel:** compare A* against Dijkstra, Weighted A*, or Pareto A*. The table shows states expanded, planned cost, and active worker time. The visual traces play at the same event rate, so a shorter trace finishes sooner; playback is not a compute benchmark.
+- **Riftworks:** open **Levels → Riftworks** for a seeded, 36-room maze with rising terraces, flood pools, diggable gates, and bridge shortcuts. Enter a seed to reproduce a layout or choose **Random** for another. **Heuristic Trap** is a separate six-edit puzzle.
 - Works with mouse, trackpad and touch
 - Requires WebGL 2. The island is playable with simple graphics while the detailed textures load in the background.
 
@@ -36,6 +38,14 @@ Re-calibrate the star targets after changing a level:
 ```bash
 CALIBRATE=1 npx vitest run tests/levels.test.ts
 ```
+
+Benchmark Riftworks seed 47:
+
+```bash
+BENCHMARK=1 npm test -- --reporter=verbose tests/duel.test.ts
+```
+
+Pareto A* skips a state when the bot can reach the same cell at no higher cost with more blocks remaining. That preserves the cheapest route on the planner's fixed world snapshot; the duel still replays each route on a separate copy to catch invalid plans involving digs or placements. Worker timings vary by device and run.
 
 Stack: TypeScript, three.js, Vite, Vitest. A\* runs in a Web Worker. See `PLAN.md` for the design notes and milestones.
 

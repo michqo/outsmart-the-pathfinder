@@ -27,6 +27,7 @@ export interface CornerHandlers {
 export class Corner {
   private run: HTMLButtonElement;
   private mute: HTMLButtonElement;
+  private duel = false;
 
   constructor(muted: boolean, h: CornerHandlers) {
     const css = document.createElement('style');
@@ -61,6 +62,11 @@ export class Corner {
   /** While a run is in progress the button restarts it. */
   setBusy(busy: boolean): void {
     this.run.classList.toggle('busy', busy);
-    (this.run.querySelector('.lbl') as HTMLElement).textContent = busy ? '↻ Restart' : '▶ Run';
+    (this.run.querySelector('.lbl') as HTMLElement).textContent = busy ? '↻ Restart' : this.duel ? '▶ Run duel' : '▶ Run';
+  }
+
+  setMode(duel: boolean): void {
+    this.duel = duel;
+    this.setBusy(false);
   }
 }

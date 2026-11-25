@@ -4,6 +4,7 @@ const CSS = /* css */ `
   box-shadow: 0 6px 24px #5a4a7a22, inset 0 0 0 1px #fff; font: 600 12px/1.2 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
   color: #3b3355; user-select: none; white-space: nowrap; }
 .hud .status { display: flex; align-items: center; gap: 6px; min-width: 92px; }
+.hud[hidden] { display: none; }
 .hud .dot { width: 8px; height: 8px; border-radius: 50%; background: #b9b3c9; }
 .hud .dot.searching, .hud .dot.replanning { background: #3fd6f0; animation: hudpulse .6s infinite alternate; }
 .hud .dot.walking { background: #ff8f78; }
@@ -79,6 +80,10 @@ export class Hud {
   setStatus(s: HudStatus): void {
     this.dot.className = `dot ${s}`;
     this.label.textContent = LABEL[s];
+  }
+
+  setVisible(visible: boolean): void {
+    this.el.hidden = !visible;
   }
 
   setStats(s: Partial<HudStats>): void {
