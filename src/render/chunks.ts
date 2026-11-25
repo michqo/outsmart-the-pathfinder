@@ -3,6 +3,7 @@ import { grassFaces, type GrassStyle, type Palette } from '../palette';
 import { MAT_KEYS } from '../world/materials';
 import { COLOR_KINDS, COLOR_TABLE_SIZE, meshChunk, type MeshData, type MeshOptions } from '../world/mesher';
 import type { World } from '../world/world';
+import { BIOME_TINT_GLSL, BiomeTint } from './biomeTint';
 
 /** Owns one opaque + one water mesh per chunk and rebuilds only dirty chunks. */
 export class ChunkRenderer {
@@ -28,23 +29,27 @@ export class ChunkRenderer {
   private real: { terrain: THREE.Material; water: THREE.Material } | null = null;
   /** Called after any chunk rebuild (the voxel texture re-uploads then). */
   onRebuilt: (() => void) | null = null;
+  /** Per-column biome colour, shared with the realistic terrain material. */
+  readonly tint = new BiomeTint();
 
   constructor(private world: World) {
     this.opaqueMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
     this.opaqueMaterial.onBeforeCompile = (shader) => {
       shader.uniforms.uJitter = this.jitter;
+      Object.assign(shader.uniforms, this.tint.uniforms);
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vCell;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vCell;\nvarying vec3 vLocal;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocal = transformed;')
         .replace(
           '#include <project_vertex>',
           // Push slightly inside the block so every face of a voxel gets the same cell id.
           '#include <project_vertex>\nvCell = floor((modelMatrix * vec4(transformed - objectNormal * 0.5, 1.0)).xyz + 0.001);',
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vCell;\nuniform float uJitter;')
+        .replace('#include <common>', `#include <common>\nvarying vec3 vCell;\nvarying vec3 vLocal;\nuniform float uJitter;\n${BIOME_TINT_GLSL}`)
         .replace(
           '#include <color_fragment>',
-          '#include <color_fragment>\nfloat hj = fract(sin(dot(vCell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);\ndiffuseColor.rgb *= 1.0 + (hj - 0.5) * uJitter;',
+          '#include <color_fragment>\nfloat hj = fract(sin(dot(vCell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);\ndiffuseColor.rgb *= (1.0 + (hj - 0.5) * uJitter) * biomeTint(vLocal);',
         );
     };
     this.waterMaterial = new THREE.MeshStandardMaterial({

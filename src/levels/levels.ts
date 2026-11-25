@@ -1,11 +1,15 @@
 import type { Vec3i } from '../path/protocol';
 import { Mat } from '../world/materials';
 import { fbm } from '../world/noise';
+import { generateIsland, type Island, type IslandSpec } from '../gen/island';
 import { generateTestIsland } from '../world/testIsland';
 import type { World } from '../world/world';
 import { generateGauntlet } from './gauntlet';
 import { generateRiftworks, RIFTWORKS_BLOCKS, RIFTWORKS_SEED } from './riftworks';
 import { defaultSpawn } from './spawn';
+
+export const ISLAND_ID = 'island';
+export const ISLAND_SEED = 2026;
 
 export interface Level {
   id: string;
@@ -25,6 +29,10 @@ export interface Level {
    */
   stars: [number, number, number] | null;
   seed?: number;
+  /** Seeded generators: the seed box regenerates this kind. */
+  kind?: 'riftworks' | 'island';
+  /** Generated islands: per-column biome, for the terrain tint. */
+  biome?: Uint8Array;
 }
 
 const TOP = 8;
@@ -181,6 +189,7 @@ export const SANDBOXES: Level[] = [
     stars: null,
     generate: generateGauntlet,
   },
+  islandLevel(),
 ];
 
 export const HEURISTIC_TRAP: Level = {
@@ -214,12 +223,45 @@ export function riftworksLevel(seed = RIFTWORKS_SEED): Level {
     budget: null,
     stars: null,
     seed,
+    kind: 'riftworks',
     generate: (world) => generateRiftworks(world, seed),
+  };
+}
+
+/**
+ * A generated island in a sandbox. Pass `island` when it was already generated (in the
+ * worker); otherwise it's generated synchronously on first use.
+ */
+export function islandLevel(seed = ISLAND_SEED, island?: Island, maxSize?: number): Level {
+  const spec: IslandSpec = { seed, ix: 0, iz: 0, maxSize };
+  let made = island;
+  return {
+    id: ISLAND_ID,
+    name: 'Generated island',
+    hint: 'A fresh island from the seed: eroded hills, rivers, lakes and biomes. Build on it, or try another seed.',
+    inventory: 16,
+    weight: 1,
+    budget: null,
+    stars: null,
+    seed,
+    kind: 'island',
+    get biome() {
+      return made?.biome;
+    },
+    generate(world) {
+      made ??= generateIsland(spec);
+      const { sx, sy, sz } = made.dims;
+      world.reshape(sx, sy, sz);
+      world.data.set(made.data);
+      world.markAllDirty();
+      return defaultSpawn(world);
+    },
   };
 }
 
 export function levelById(id: string): Level | undefined {
   if (id === RIFTWORKS_ID) return riftworksLevel();
+  if (id === ISLAND_ID) return islandLevel();
   return id === HEURISTIC_TRAP.id ? HEURISTIC_TRAP : LEVELS.find((l) => l.id === id) ?? SANDBOXES.find((l) => l.id === id);
 }
 

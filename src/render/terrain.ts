@@ -2,6 +2,7 @@ import { CLOUD_GLSL, type CloudUniforms } from './clouds';
 import * as THREE from 'three';
 import type { World } from '../world/world';
 import type { Assets } from './assets';
+import { BIOME_TINT_GLSL, BiomeTint } from './biomeTint';
 
 /**
  * The voxel grid as a 3D texture, so terrain shaders can look up a face's material
@@ -54,6 +55,7 @@ float vnoise(vec2 p) {
 
 const TERRAIN_FRAG_HEAD = /* glsl */ `
 ${COMMON}
+${BIOME_TINT_GLSL}
 uniform sampler2DArray tAlb, tNor, tArm;
 uniform sampler3D tVox;
 uniform float uScale, uBevel, uNormalStrength, uGreen;
@@ -191,7 +193,7 @@ const TERRAIN_SURFACE = /* glsl */ `
   w = 1.0 - clamp((1.0 - dv) / bw, 0.0, 1.0); if (w > 0.0 && !solidM(voxAt(sCell + iB))) off += sB * w * w;
 
   vec3 sNW = normalize(normalize(sT * sNT.x + sB * sNT.y + sN * sNT.z) + off * 1.1);
-  diffuseColor.rgb *= sAlb * mix(1.0, sArm.r, 0.75);
+  diffuseColor.rgb *= sAlb * mix(1.0, sArm.r, 0.75) * biomeTint(vVox);
 `;
 
 export interface TerrainMaterial {
@@ -221,6 +223,7 @@ export function createTerrainMaterial(
   vox: VoxelTexture,
   clouds?: CloudUniforms,
   islandOffset = new THREE.Vector3(),
+  tint = new BiomeTint(),
 ): TerrainMaterial {
   const uniforms = {
     uScale: { value: 0.28 },
@@ -244,6 +247,7 @@ export function createTerrainMaterial(
       tVox: vox.uniform,
       ...(clouds ?? {}),
       uIslandOffset: { value: islandOffset },
+      ...tint.uniforms,
     });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vVox;\nvarying vec3 vVoxN;')

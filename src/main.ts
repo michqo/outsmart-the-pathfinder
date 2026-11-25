@@ -3,7 +3,9 @@ import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
 import { Handles } from './edit/handles';
 import { courseFromHash, decodeLevel, encodeLevel, HASH_KEY } from './levels/codec';
-import { HEURISTIC_TRAP, LEVELS, levelById, riftworksLevel, SANDBOXES, type Level } from './levels/levels';
+import { HEURISTIC_TRAP, islandLevel, LEVELS, levelById, riftworksLevel, SANDBOXES, type Level } from './levels/levels';
+import { IslandClient } from './gen/client';
+import { ISLAND_SIZE } from './gen/island';
 import { bestFor, bestScores, lastLevel, recordScore, setLastLevel } from './levels/progress';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
@@ -242,7 +244,7 @@ applyPalette();
 
 function upgradeTerrain(): void {
   void loadAssets().then((a) => {
-    terrain = createTerrainMaterial(a, voxels, sky.cloud, stage.island.position);
+    terrain = createTerrainMaterial(a, voxels, sky.cloud, stage.island.position, chunks.tint);
     water = createWaterMaterial();
     assets = a;
     applyQuality();
@@ -363,7 +365,8 @@ const score = new ScorePanel({
   onLevels: (opener) =>
     openLevelsDialog(LEVELS, SANDBOXES, bestScores(), course.level.id, (l) => {
       clearHash();
-      startLevel(l);
+      if (l.kind === 'island') void startIsland(l.seed);
+      else startLevel(l);
     }, opener),
   onReset: () => applyCourse(course, duelActive),
   onShare: () => void share(),
@@ -384,7 +387,8 @@ const score = new ScorePanel({
       return;
     }
     clearHash();
-    startLevel(riftworksLevel(seed));
+    if (course.level.kind === 'island') void startIsland(seed);
+    else startLevel(riftworksLevel(seed));
   },
 });
 
@@ -466,10 +470,34 @@ function onRunEnd(arrived: boolean, nodes: number, edited: boolean): void {
 
 function startLevel(level: Level, dare = 0): void {
   const sp = level.generate(world);
-  if (level.seed !== undefined) opponent = 'pareto';
-  applyCourse({ level, dims: { sx: world.sx, sy: world.sy, sz: world.sz }, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare }, level.seed !== undefined);
+  const duel = level.kind === 'riftworks';
+  if (duel) opponent = 'pareto';
+  applyCourse({ level, dims: { sx: world.sx, sy: world.sy, sz: world.sz }, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare }, duel);
   if (LEVELS.includes(level)) setLastLevel(level.id);
 }
+
+const islands = new IslandClient();
+let islandRequest = 0;
+/** Phones get smaller islands from the same seed (see PLAN.md, M8). */
+const islandCap = matchMedia('(max-width: 720px), (pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
+
+/** Generates an island in the worker, then opens it. A newer request wins. */
+async function startIsland(seed = course?.level.kind === 'island' ? course.level.seed : undefined): Promise<void> {
+  const id = ++islandRequest;
+  score.toast('Raising the island…');
+  try {
+    const level = islandLevel(seed, undefined, islandCap);
+    const island = await islands.generate({ seed: level.seed!, ix: 0, iz: 0, maxSize: islandCap });
+    if (id !== islandRequest) return;
+    startLevel(islandLevel(level.seed, island, islandCap));
+  } catch (err) {
+    console.warn('Island generation failed', err);
+    score.toast("That island couldn't be generated");
+  }
+}
+
+/** Window size the camera distance was last fitted to (1 = 64 wide). */
+let stageScale = 1;
 
 /** Centres the window under the camera and fits the sun's shadow box and zoom-out to its size. */
 function fitStage(): void {
@@ -481,6 +509,13 @@ function fitStage(): void {
   sc.far = 200 * k;
   sc.updateProjectionMatrix();
   stage.controls.maxDistance = 220 * k;
+  // Pull the camera back (or in) by how much the window grew, keeping its angle.
+  if (k !== stageScale) {
+    const { camera, controls } = stage;
+    camera.position.sub(controls.target).multiplyScalar(k / stageScale).add(controls.target);
+    controls.update();
+    stageScale = k;
+  }
 }
 
 /** Puts a course's world, spawn and rules in place (also what Reset does). */
@@ -492,6 +527,7 @@ function applyCourse(c: Course, compare = false): void {
   world.version++;
   world.markAllDirty();
   fitStage();
+  chunks.tint.set(c.level.biome, world.sx, world.sz);
   history.clear();
   touched.clear();
   lastScore = sandboxBest = 0;
@@ -514,13 +550,13 @@ async function share(): Promise<void> {
   const { level } = course;
   const challenge = LEVELS.includes(level) || level === HEURISTIC_TRAP;
   const dare = level === HEURISTIC_TRAP ? 0 : challenge ? bestFor(level.id) : lastScore;
-  if (!challenge && !sameDims(world, DEFAULT_DIMS)) {
-    score.toast("Islands this big can't be shared yet");
+  if (!challenge && (level.kind === 'island' || !sameDims(world, DEFAULT_DIMS))) {
+    score.toast('Island links arrive with the archipelago');
     return;
   }
   const text = await encodeLevel({
     mode: challenge ? 'challenge' : 'sandbox',
-    levelId: challenge ? level.id : level.seed === undefined ? '' : `riftworks:${level.seed}`,
+    levelId: challenge ? level.id : level.kind === 'riftworks' ? `riftworks:${level.seed}` : '',
     world: challenge ? null : bot.courseSnapshot(),
     start: bot.home,
     goal: bot.goal,
@@ -561,8 +597,9 @@ async function openSharedCourse(): Promise<boolean> {
         name: 'Shared course',
         hint: 'Someone built this for you. Run it, or change it and share it back.',
       };
-      if (level.seed !== undefined) opponent = 'pareto';
-      applyCourse({ level, dims: DEFAULT_DIMS, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare }, level.seed !== undefined);
+      const duel = level.kind === 'riftworks';
+      if (duel) opponent = 'pareto';
+      applyCourse({ level, dims: DEFAULT_DIMS, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare }, duel);
     }
     return true;
   } catch (err) {

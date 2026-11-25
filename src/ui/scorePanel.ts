@@ -324,7 +324,7 @@ export function openLevelsDialog(
   const card = (l: Level, i: number | null) => {
     const got = starsFor(l, best[l.id] ?? 0);
     const stars = l.stars ? `<span class="s">${'★'.repeat(got)}<span class="off">${'★'.repeat(3 - got)}</span></span>` : '';
-    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : l.seed !== undefined ? 'Seeded maze · 36 rooms' : 'No limits';
+    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : l.kind === 'riftworks' ? 'Seeded maze · 36 rooms' : l.kind === 'island' ? 'Seeded · erosion, rivers, biomes' : 'No limits';
     return `<button class="card${l.id === current ? ' on' : ''}" data-id="${l.id}"${l.id === current ? ' autofocus' : ''}>
       ${i !== null ? `<span class="n">Level ${i + 1}</span>` : ''}<b>${l.name}</b>${stars}<small>${sub}</small></button>`;
   };
