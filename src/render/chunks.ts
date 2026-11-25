@@ -21,6 +21,11 @@ export class ChunkRenderer {
   private opaque: (THREE.Mesh | null)[] = new Array(CHUNK_COUNT).fill(null);
   private water: (THREE.Mesh | null)[] = new Array(CHUNK_COUNT).fill(null);
   private tris = new Int32Array(CHUNK_COUNT);
+  private palette: { p: Palette; grass: GrassStyle } | null = null;
+  /** Realistic materials, when the style is on (set by setRealistic). */
+  private real: { terrain: THREE.Material; water: THREE.Material } | null = null;
+  /** Called after any chunk rebuild (the voxel texture re-uploads then). */
+  onRebuilt: (() => void) | null = null;
 
   constructor(private world: World) {
     this.opaqueMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
@@ -50,8 +55,15 @@ export class ChunkRenderer {
   }
 
   setPalette(p: Palette, grassStyle: GrassStyle): void {
+    this.palette = { p, grass: grassStyle };
     const c = new THREE.Color();
     const t = this.opts.colorTable;
+    if (this.real) {
+      // Textures carry the colour; vertex colours then hold only the baked AO.
+      t.fill(1);
+      this.world.markAllDirty();
+      return;
+    }
     for (let m = 1; m < MAT_KEYS.length; m++) {
       const key = MAT_KEYS[m];
       if (key === 'water' || key === 'air') continue;
@@ -70,9 +82,30 @@ export class ChunkRenderer {
     this.world.markAllDirty();
   }
 
+  /** Switches between the stylised flat colours and realistic PBR materials (null = stylised). */
+  setRealistic(real: { terrain: THREE.Material; water: THREE.Material } | null): void {
+    this.real = real;
+    const solid = this.solidMaterial(), water = this.liquidMaterial();
+    for (const m of this.opaque) if (m) m.material = solid;
+    for (const m of this.water) if (m) m.material = water;
+    if (this.palette) this.setPalette(this.palette.p, this.palette.grass);
+  }
+
+  private solidMaterial(): THREE.Material {
+    return this.real?.terrain ?? this.opaqueMaterial;
+  }
+
+  private liquidMaterial(): THREE.Material {
+    return this.real?.water ?? this.waterMaterial;
+  }
+
   setWireframe(on: boolean): void {
     this.opaqueMaterial.wireframe = on;
     this.waterMaterial.wireframe = on;
+    if (this.real) {
+      (this.real.terrain as THREE.MeshStandardMaterial).wireframe = on;
+      (this.real.water as THREE.MeshStandardMaterial).wireframe = on;
+    }
   }
 
   /** Rebuilds dirty chunks. Returns how many were rebuilt. */
@@ -86,12 +119,13 @@ export class ChunkRenderer {
       const cz = Math.floor(ci / CX) % CZ;
       const cy = Math.floor(ci / (CX * CZ));
       const { opaque, water } = meshChunk(this.world, cx, cy, cz, this.opts);
-      this.opaque[ci] = this.swap(this.opaque[ci], opaque, this.opaqueMaterial, true);
-      this.water[ci] = this.swap(this.water[ci], water, this.waterMaterial, false);
+      this.opaque[ci] = this.swap(this.opaque[ci], opaque, this.solidMaterial(), true);
+      this.water[ci] = this.swap(this.water[ci], water, this.liquidMaterial(), false);
       this.tris[ci] = (opaque.indices.length + water.indices.length) / 3;
       count++;
     }
     dirty.clear();
+    this.onRebuilt?.();
     this.stats.lastRebuildMs = performance.now() - t0;
     this.stats.triangles = this.tris.reduce((a, b) => a + b, 0);
     return count;

@@ -33,20 +33,23 @@ export class BotView {
   private blink = 0;
   private nextBlink = 2;
 
-  private mats = {
-    body: new THREE.MeshStandardMaterial({ color: CREAM, roughness: 0.55 }),
-    accent: new THREE.MeshStandardMaterial({ color: CORAL, roughness: 0.5 }),
-    ink: new THREE.MeshStandardMaterial({ color: INK, roughness: 0.35 }),
-    eyeWhite: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 }),
-    glow: new THREE.MeshBasicMaterial({ color: 0x8ff4ff }),
-  };
+  private model: BotModel;
+  private mats = stylisedMats();
 
   constructor(model: BotModel) {
+    this.model = model;
     this.root.add(this.body);
     this.setModel(model);
   }
 
+  /** Same design, realistic materials: painted plastic, anodised metal, a glowing lens. */
+  setRealistic(on: boolean): void {
+    this.mats = on ? realisticMats() : stylisedMats();
+    this.setModel(this.model);
+  }
+
   setModel(model: BotModel): void {
+    this.model = model;
     this.body.clear();
     this.eye = new THREE.Group();
     this.antenna = new THREE.Group();
@@ -188,6 +191,38 @@ export class BotView {
     this.legs[0].rotation.x = legSwing;
     this.legs[1].rotation.x = -legSwing;
   }
+}
+
+type BotMats = Record<'body' | 'accent' | 'ink' | 'eyeWhite' | 'glow', THREE.Material>;
+
+function stylisedMats(): BotMats {
+  return {
+    body: new THREE.MeshStandardMaterial({ color: CREAM, roughness: 0.55 }),
+    accent: new THREE.MeshStandardMaterial({ color: CORAL, roughness: 0.5 }),
+    ink: new THREE.MeshStandardMaterial({ color: INK, roughness: 0.35 }),
+    eyeWhite: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 }),
+    glow: new THREE.MeshBasicMaterial({ color: 0x8ff4ff }),
+  };
+}
+
+function realisticMats(): BotMats {
+  return {
+    // Glossy painted shell: a clear lacquer coat over slightly rough paint.
+    body: new THREE.MeshPhysicalMaterial({ color: CREAM, roughness: 0.42, clearcoat: 1, clearcoatRoughness: 0.12 }),
+    // Anodised aluminium trim.
+    accent: new THREE.MeshPhysicalMaterial({ color: CORAL, metalness: 0.85, roughness: 0.3, clearcoat: 0.4 }),
+    // Brushed dark metal (anisotropic highlights) for legs, pupil and antenna.
+    ink: new THREE.MeshPhysicalMaterial({ color: 0x3b3748, metalness: 0.9, roughness: 0.34, anisotropy: 0.8 }),
+    // The lens: glass over a soft glow, picked up by bloom.
+    eyeWhite: new THREE.MeshPhysicalMaterial({
+      color: 0xf2fdff,
+      emissive: 0x9ff0ff,
+      emissiveIntensity: 3.2,
+      roughness: 0.04,
+      clearcoat: 1,
+    }),
+    glow: new THREE.MeshStandardMaterial({ color: 0x0b2a30, emissive: 0x8ff4ff, emissiveIntensity: 3 }),
+  };
 }
 
 function damp(a: number, b: number, dt: number, k: number): number {

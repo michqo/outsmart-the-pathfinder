@@ -114,6 +114,16 @@ Review together: the look, the feel, performance, and whether the move-rule appr
   - [x] Search cubes fade to 15 % while the bot walks
   - [x] Debug → "Gauntlet": moat, clay wall, chasm, crystal cliff (needs every move). 48 Vitest tests
   - Known nit: underside rock spikes poke into deep chasms (polish later)
+- **Realistic look:** ✅ done 2026-11-25 (Graphics → style: Realistic default, Stylised kept for comparison)
+  - [x] Poly Haven CC0 assets in `public/assets` (credits in `CREDITS.md`): leafy grass, excavated soil, rock face 03 (1k diff/normal/ARM), Kloofendal puresky HDRI (2k)
+  - [x] Terrain textures packed into texture arrays and mapped in world space (no per-block tiles). Two rotated samples are blended by noise to hide tiling. Grass is pulled toward green (the scan is mostly leaf litter); the moss drips over clay with a ragged edge
+  - [x] A voxel 3D texture lets the shader find each face's material and **bevel only exposed edges** (no grid on flat ground)
+  - [x] Crystal = glassy, faceted, faint glow; placed blocks = painted plastic; water = reflective, animated waves, fresnel opacity; the underside rocks use the rock scan
+  - [x] HDRI lighting; the sun direction is read from the HDRI. Sky dome = HDRI above the horizon, mirrored haze below (the island floats in sky)
+  - [x] Robot keeps its design with clearcoat paint, anodised trim, brushed-metal legs and a glowing lens eye
+  - [x] Post (High): MSAA → GTAO (half res, transparent objects hidden from its pre-pass) → bloom (quarter res, threshold 2.6) → ACES → grade + vignette
+  - [x] Quality: **High** (DPR ≤ 2, 4k shadows, post, 2-sample anti-tiling) / **Low** (DPR ≤ 1.5, 2k shadows, no post, 1 sample)
+  - [x] Perf: High 5.7 ms/frame at 2048×1536 (12.8 ms before the half/quarter-res AO and bloom), Low 2.7 ms at 1024×768. Projected ~10 ms full-screen on a Retina MacBook
 - **M4 — Live replanning:** edits that touch the remaining path → cancel + rerun A\* from the bot's cell. Execution-time validation of every step. The replan is visualized. "Follow bot" camera.
 - **M5 — Game layer:** score panel, 5–8 built-in levels (tutorial → hard), RLE + `CompressionStream` deflate → base64url share links (round-trip tests), weighted-A\* slider.
 - **M6 — Polish + deploy:** synth blips (optional), loading screen, touch controls, a "how to play" overlay, final name, **Vercel** deploy (`vercel.json` not needed for a plain Vite static build; set up the GitHub repo first).

@@ -9,7 +9,14 @@ import { hash2, rng } from '../world/noise';
  * Low-poly rocky stalactites hanging under the island.
  * Generated from the island's footprint; cheap enough to rebuild on demand.
  */
-export function buildUnderside(world: World, palette: Palette, seed = 3): THREE.Mesh {
+export interface RockMaps {
+  map: THREE.Texture;
+  normalMap: THREE.Texture;
+  armMap: THREE.Texture;
+}
+
+/** With `rock` maps the cones get real rock textures (realistic style); otherwise palette colours. */
+export function buildUnderside(world: World, palette: Palette, rock: RockMaps | null = null, seed = 3): THREE.Mesh {
   const bottom = new Int16Array(SX * SZ).fill(-1);
   for (let z = 0; z < SZ; z++)
     for (let x = 0; x < SX; x++)
@@ -34,8 +41,8 @@ export function buildUnderside(world: World, palette: Palette, seed = 3): THREE.
   };
 
   const r = rng(seed);
-  const top = new THREE.Color(palette.rock.top);
-  const tip = new THREE.Color(palette.rock.tip);
+  const top = new THREE.Color(rock ? 0xd8d2cc : palette.rock.top);
+  const tip = new THREE.Color(rock ? 0x6e6a70 : palette.rock.tip);
   const tmp = new THREE.Color();
   const parts: THREE.BufferGeometry[] = [];
 
@@ -76,16 +83,29 @@ export function buildUnderside(world: World, palette: Palette, seed = 3): THREE.
         colors[i * 3 + 2] = tmp.b;
       }
       g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      g.deleteAttribute('uv');
+      if (rock) {
+        // About one texture tile per 4 units, so the rock grain matches the voxel slate.
+        const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+        for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * ((rad * Math.PI * 2) / 4), uv.getY(i) * (len / 4));
+      } else g.deleteAttribute('uv');
       g.computeVertexNormals(); // non-indexed => flat shading
       parts.push(g);
     }
 
   const geo = parts.length ? mergeGeometries(parts)! : new THREE.BufferGeometry();
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide }),
-  );
+  const material = rock
+    ? new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        map: rock.map,
+        normalMap: rock.normalMap,
+        roughnessMap: rock.armMap,
+        aoMap: rock.armMap,
+        roughness: 1,
+        metalness: 0,
+        side: THREE.DoubleSide,
+      })
+    : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geo, material);
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   return mesh;

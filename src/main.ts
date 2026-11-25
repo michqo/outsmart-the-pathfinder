@@ -13,11 +13,18 @@ import { buildUnderside } from './render/underside';
 import { Hotbar } from './ui/hotbar';
 import { Hud } from './ui/hud';
 import { createPanel, type Settings, type Stats } from './ui/panel';
+import { loadAssets, type Assets } from './render/assets';
+import { PostFX } from './render/post';
+import { createTerrainMaterial, createWaterMaterial, VoxelTexture, type TerrainMaterial, type WaterMaterial } from './render/terrain';
 import { Mat } from './world/materials';
 import { generateStressLevel, generateTestIsland } from './world/testIsland';
 import { World } from './world/world';
 
 const settings: Settings = {
+  style: 'realistic',
+  quality: 'high',
+  envIntensity: 1.0,
+  bloom: 0.3,
   palette: 'meadow',
   grassStyle: 'drip',
   hotbarStyle: 'chips',
@@ -70,7 +77,7 @@ function rebuildUnderside(): void {
     underside.geometry.dispose();
     (underside.material as THREE.Material).dispose();
   }
-  underside = buildUnderside(world, palette());
+  underside = buildUnderside(world, palette(), realistic() ? assets!.rock : null);
   stage.island.add(underside);
   stats.undersideMs = performance.now() - t0;
 }
@@ -122,30 +129,94 @@ syncHotbar();
 
 // ---------------------------------------------------------------- look
 
+/** Realistic-style assets; null until they've loaded (the stylised look shows meanwhile). */
+let assets: Assets | null = null;
+let terrain: TerrainMaterial | null = null;
+let water: WaterMaterial | null = null;
+const voxels = new VoxelTexture(world);
+chunks.onRebuilt = () => voxels.touch();
+const post = new PostFX(stage.renderer, stage.scene, stage.camera);
+const realistic = () => settings.style === 'realistic' && assets !== null;
+const DEFAULT_SUN = new THREE.Vector3(45, 70, 28).normalize();
+
 function applyPalette(): void {
   const p = palette();
+  const real = realistic();
+  chunks.setRealistic(real ? { terrain: terrain!.material, water: water!.material } : null);
   chunks.setPalette(p, settings.grassStyle);
   sky.setPalette(p);
-  stage.sun.color.setHex(p.sun.color);
-  stage.sun.intensity = p.sun.intensity;
+  sky.setReal(real ? assets!.env : null, settings.envIntensity);
+  stage.scene.environment = real ? assets!.env : null;
+  stage.scene.environmentIntensity = settings.envIntensity;
+  stage.hemi.visible = !real;
+  if (real) {
+    // Light comes from where the sun is in the HDRI (kept high enough for readable shadows).
+    const d = assets!.sunDir.clone();
+    d.y = Math.max(d.y, 0.55);
+    stage.sun.position.copy(stage.sun.target.position).addScaledVector(d.normalize(), 85);
+    stage.sun.color.setHex(0xfff1df);
+    stage.sun.intensity = 2.6;
+    terrain!.uniforms.uPlaced.value.setHex(p.blocks.placed.top);
+    terrain!.uniforms.uCrystal.value.setHex(p.blocks.crystal.side);
+  } else {
+    stage.sun.position.copy(stage.sun.target.position).addScaledVector(DEFAULT_SUN, 85);
+    stage.sun.color.setHex(p.sun.color);
+    stage.sun.intensity = p.sun.intensity;
+  }
   stage.hemi.color.setHex(p.hemi.sky);
   stage.hemi.groundColor.setHex(p.hemi.ground);
   stage.hemi.intensity = p.hemi.intensity;
+  bot.bot.setRealistic(real);
   hotbar.setColors(colorOf);
+  applyMeshOptions();
   rebuildUnderside();
 }
 
+function applyQuality(): void {
+  const high = settings.quality === 'high';
+  const r = stage.renderer;
+  r.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : 1.5));
+  r.setSize(window.innerWidth, window.innerHeight);
+  const size = high ? 4096 : 2048;
+  const shadow = stage.sun.shadow;
+  if (shadow.mapSize.x !== size) {
+    shadow.mapSize.set(size, size);
+    shadow.map?.dispose();
+    shadow.map = null;
+  }
+  terrain?.setLowQuality(!high);
+  post.resize();
+}
+
 function applyMeshOptions(): void {
-  const s = settings.aoStrength;
+  // Realistic + High already gets screen-space AO, so the baked corner AO is softened.
+  const s = settings.aoStrength * (realistic() && settings.quality === 'high' ? 0.7 : 1);
   chunks.opts.ao = settings.ao;
   chunks.opts.aoCurve = [1 - s, 1 - s * 0.62, 1 - s * 0.3, 1];
   world.markAllDirty();
 }
 
-applyMeshOptions();
+applyQuality();
 applyPalette();
 
+loadAssets()
+  .then((a) => {
+    assets = a;
+    terrain = createTerrainMaterial(a, voxels);
+    water = createWaterMaterial();
+    applyQuality();
+    applyPalette();
+  })
+  .catch((err) => console.error('Realistic assets failed to load; staying stylised.', err));
+
 createPanel(settings, stats, {
+  onStyle: applyPalette,
+  onQuality: () => {
+    applyQuality();
+    applyMeshOptions();
+  },
+  onEnvIntensity: applyPalette,
+  onBloom: () => (post.bloom.strength = settings.bloom),
   onPalette: applyPalette,
   onHotbarStyle: () => hotbar.setStyle(settings.hotbarStyle),
   onMeshOptions: applyMeshOptions,
@@ -184,7 +255,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Dev-only handle for poking at the scene from the console.
-if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, settings, editor, bot, applyPalette } });
+if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets } });
 
 // ---------------------------------------------------------------- loop
 
@@ -207,7 +278,9 @@ stage.renderer.setAnimationLoop((time) => {
   bot.update(dt, t);
   sky.update(t);
   stage.controls.update();
-  stage.renderer.render(stage.scene, stage.camera);
+  if (water) water.time.value = t;
+  if (settings.quality === 'high') post.render(dt);
+  else stage.renderer.render(stage.scene, stage.camera);
 
   frames++;
   fpsTimer += dt;

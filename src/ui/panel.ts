@@ -4,7 +4,16 @@ import { BOT_MODELS, type BotModel } from '../render/bot';
 import { VIZ_STYLES, type VizStyle } from '../render/searchViz';
 import { HOTBAR_STYLES, type HotbarStyle } from './hotbar';
 
+export const STYLES = { Realistic: 'realistic', Stylised: 'stylised' } as const;
+export type Style = (typeof STYLES)[keyof typeof STYLES];
+export const QUALITIES = { High: 'high', Low: 'low' } as const;
+export type Quality = (typeof QUALITIES)[keyof typeof QUALITIES];
+
 export interface Settings {
+  style: Style;
+  quality: Quality;
+  envIntensity: number;
+  bloom: number;
   palette: string;
   grassStyle: GrassStyle;
   hotbarStyle: HotbarStyle;
@@ -30,6 +39,10 @@ export interface Stats {
 }
 
 export interface PanelHandlers {
+  onStyle(): void;
+  onQuality(): void;
+  onEnvIntensity(): void;
+  onBloom(): void;
   onPalette(): void;
   onHotbarStyle(): void;
   onMeshOptions(): void;
@@ -56,6 +69,12 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   perf.addBinding(stats, 'triangles', { readonly: true, format: (v: number) => v.toFixed(0), label: 'triangles' });
   perf.addBinding(stats, 'remeshMs', { readonly: true, format: (v: number) => v.toFixed(2), label: 'remesh ms' });
   perf.addBinding(stats, 'undersideMs', { readonly: true, format: (v: number) => v.toFixed(1), label: 'underside ms' });
+
+  const gfx = pane.addFolder({ title: 'Graphics' });
+  gfx.addBinding(settings, 'style', { options: STYLES }).on('change', h.onStyle);
+  gfx.addBinding(settings, 'quality', { options: QUALITIES }).on('change', h.onQuality);
+  gfx.addBinding(settings, 'envIntensity', { label: 'sky light', min: 0, max: 2, step: 0.01 }).on('change', h.onEnvIntensity);
+  gfx.addBinding(settings, 'bloom', { min: 0, max: 1, step: 0.01 }).on('change', h.onBloom);
 
   const search = pane.addFolder({ title: 'Search' });
   search.addBinding(settings, 'revealSeconds', { label: 'reveal (s)', min: 0, max: 6, step: 0.1 }).on('change', h.onReveal);

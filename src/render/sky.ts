@@ -12,6 +12,9 @@ export class Sky {
     uBottom: { value: new THREE.Color() },
   };
   private cloudMaterial = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 1, metalness: 0 });
+  private gradientDome: THREE.Mesh;
+  private realDome: THREE.Mesh;
+  private realUniforms = { tEnv: { value: null as THREE.Texture | null }, uIntensity: { value: 1 } };
   private clouds: { mesh: THREE.Mesh; angle: number; radius: number; y: number; speed: number; phase: number }[] = [];
 
   constructor() {
@@ -40,7 +43,50 @@ export class Sky {
       }),
     );
     dome.renderOrder = -1;
+    this.gradientDome = dome;
     this.group.add(dome);
+
+    // Realistic: the HDRI sky above the horizon, mirrored into soft haze below it,
+    // so the island floats in open sky instead of over the photo's murky ground half.
+    this.realDome = new THREE.Mesh(
+      new THREE.SphereGeometry(700, 48, 24),
+      new THREE.ShaderMaterial({
+        uniforms: this.realUniforms,
+        side: THREE.BackSide,
+        depthWrite: false,
+        vertexShader: /* glsl */ `
+          varying vec3 vDir;
+          void main() {
+            vDir = normalize(position);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }`,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D tEnv;
+          uniform float uIntensity;
+          varying vec3 vDir;
+          vec3 env(vec3 d) {
+            vec2 uv = vec2(atan(d.z, d.x) * 0.15915494 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * 0.31830989 + 0.5);
+            return texture2D(tEnv, uv).rgb;
+          }
+          void main() {
+            vec3 d = normalize(vDir);
+            vec3 c;
+            if (d.y >= 0.0) c = env(d);
+            else {
+              // Below: a squashed reflection of the low sky, fading into bright haze.
+              vec3 m = normalize(vec3(d.x, -d.y * 0.35 + 0.015, d.z));
+              vec3 haze = env(normalize(vec3(d.x, 0.04, d.z)));
+              c = mix(env(m), haze, smoothstep(0.0, 0.6, -d.y) * 0.75);
+            }
+            gl_FragColor = vec4(c * uIntensity, 1.0);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }`,
+      }),
+    );
+    this.realDome.renderOrder = -1;
+    this.realDome.visible = false;
+    this.group.add(this.realDome);
 
     const r = rng(99);
     for (let i = 0; i < 7; i++) {
@@ -64,6 +110,15 @@ export class Sky {
     this.uniforms.uHorizon.value.setHex(p.sky.horizon);
     this.uniforms.uBottom.value.setHex(p.sky.bottom);
     this.cloudMaterial.color.setHex(p.cloud);
+  }
+
+  /** Realistic sky from an equirect HDR (null = the stylised gradient + clouds). */
+  setReal(env: THREE.Texture | null, intensity = 1): void {
+    this.realUniforms.tEnv.value = env;
+    this.realUniforms.uIntensity.value = intensity;
+    this.realDome.visible = env !== null;
+    this.gradientDome.visible = env === null;
+    for (const c of this.clouds) c.mesh.visible = env === null;
   }
 
   update(t: number): void {
