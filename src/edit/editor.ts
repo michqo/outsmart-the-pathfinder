@@ -34,7 +34,8 @@ export class Editor {
   material: Mat = Mat.Grass;
   enabled = true;
   /** Called after any change to the world. */
-  onEdit: () => void = () => {};
+  /** After every edit / undo / redo, with the voxel indices it changed. */
+  onEdit: (cells: number[]) => void = () => {};
   /** Called when tool or material changes from the keyboard. */
   onToolChange: () => void = () => {};
 
@@ -107,11 +108,11 @@ export class Editor {
   }
 
   undo(): void {
-    if (this.history.undo(this.world)) this.onEdit();
+    if (this.history.undo(this.world)) this.onEdit(this.history.lastCells);
   }
 
   redo(): void {
-    if (this.history.redo(this.world)) this.onEdit();
+    if (this.history.redo(this.world)) this.onEdit(this.history.lastCells);
   }
 
   /** Per frame: re-pick (the camera may have moved), update previews, ease the focus. */
@@ -175,7 +176,7 @@ export class Editor {
     const cell = this.targetCell(p.remove);
     if (!cell) return;
     const m = p.remove ? Mat.Air : this.material;
-    if (this.history.edit(this.world, (set) => set(cell.x, cell.y, cell.z, m))) this.onEdit();
+    if (this.history.edit(this.world, (set) => set(cell.x, cell.y, cell.z, m))) this.onEdit(this.history.lastCells);
   };
 
   private onKey = (e: KeyboardEvent): void => {
@@ -259,7 +260,7 @@ export class Editor {
       for (let y = min.y; y <= max.y; y++)
         for (let z = min.z; z <= max.z; z++) for (let x = min.x; x <= max.x; x++) set(x, y, z, m);
     });
-    if (n) this.onEdit();
+    if (n) this.onEdit(this.history.lastCells);
   }
 
   private focusHovered(): void {

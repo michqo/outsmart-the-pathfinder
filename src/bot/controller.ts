@@ -11,9 +11,14 @@ import { SearchViz, type VizStyle } from '../render/searchViz';
 import type { Hud } from '../ui/hud';
 import { Mat } from '../world/materials';
 import { voxelCoords, voxelIndex, type World } from '../world/world';
+import * as THREE from 'three';
+import { pathFootprint, stepFootprint, touching } from './pathTouch';
 import { Walker } from './walker';
 
-type Phase = 'idle' | 'searching' | 'revealing' | 'path' | 'walking';
+type Phase = 'idle' | 'searching' | 'revealing' | 'path' | 'walking' | 'bonk';
+
+/** Seconds for the startled hop back when an edit lands on the step in progress. */
+const BONK_TIME = 0.42;
 
 /** How deep the bot sits in water. */
 const SWIM_SINK = -0.55;
@@ -45,6 +50,8 @@ export class BotController {
   readonly goalMarker = new GoalMarker();
   readonly viz: SearchViz;
   readonly ribbon = new PathRibbon();
+  /** The path the bot just abandoned, shown dashed while it re-thinks. */
+  readonly ghost = new PathRibbon();
   readonly effects = new Effects();
   private client = new SearchClient();
   private walker: Walker;
@@ -57,6 +64,19 @@ export class BotController {
   private built = 0;
   /** Cells the bot changed this run: voxel index → what the course had there and what the bot left. */
   private changes = new Map<number, { course: Mat; bot: Mat }>();
+  /** Where the current search started. */
+  private searchFrom: Vec3i = [0, 0, 0];
+  private searchStatus: 'searching' | 'replanning' = 'searching';
+  /** An edit hit the path further ahead: replan when the current step ends. */
+  private replanAtNextNode = false;
+  private replans = 0;
+  /** True from the first step of a run until it ends (drives the follow camera). */
+  private running = false;
+  private ghostTimer = 0;
+  private bonkT = 0;
+  private bonkCell: Vec3i = [0, 0, 0];
+  private bonkFrom = new THREE.Vector3();
+  private bonkTo = new THREE.Vector3();
 
   constructor(
     stage: Stage,
@@ -81,6 +101,11 @@ export class BotController {
       },
       onStepDone: (i, k) => {
         this.ribbon.stepDone(i);
+        if (this.replanAtNextNode && this.result && i < this.result.nodes.length - 1) {
+          this.walker.stop();
+          this.replan(voxelCoords(this.result.nodes[i]));
+          return;
+        }
         if (k !== MoveKind.Dig && k !== MoveKind.DigDown) this.bot.setMood('walking');
       },
       onLand: (blocks) => this.bot.land(blocks >= 3),
@@ -88,7 +113,8 @@ export class BotController {
       onInvalid: (at) => this.replan(at),
       sink: (c) => (isSwimSpot(this.world, c[0], c[1], c[2]) ? SWIM_SINK : 0),
     });
-    stage.island.add(this.bot.root, this.goalMarker.root, this.viz.mesh, this.ribbon.group, this.effects.group);
+    this.ghost.broken = true;
+    stage.island.add(this.bot.root, this.goalMarker.root, this.viz.mesh, this.ghost.group, this.ribbon.group, this.effects.group);
     this.placeIdle();
     this.faceGoal();
     this.updateInventoryHud();
@@ -104,7 +130,7 @@ export class BotController {
     this.restoreCourse();
     this.at = this.home;
     this.blocksLeft = this.blocksTotal;
-    this.dug = this.built = 0;
+    this.dug = this.built = this.replans = 0;
     this.placeIdle();
     this.faceGoal();
     this.search(this.home, 'searching');
@@ -142,14 +168,85 @@ export class BotController {
     this.changes.clear();
   }
 
-  /** After the player edits: keep home and goal standing on something. */
-  onWorldEdit(): void {
-    if (this.phase === 'walking') return; // a broken step is caught (and replanned) when the bot reaches it
+  /**
+   * The player edited `cells` (voxel indices). While a run is on, the bot reacts:
+   *  - searching: the search used an old copy of the world, so start it again;
+   *  - path shown / walking: only if the edit touches the remaining path. An edit on the
+   *    step in progress makes it hop back ("bonk") and rethink; one further ahead makes it
+   *    rethink when it reaches the next cell.
+   */
+  onWorldEdit(cells: number[] = []): void {
+    if (this.phase === 'searching' || this.phase === 'revealing') {
+      this.search(this.searchFrom, this.searchStatus);
+      return;
+    }
+    if (this.phase === 'bonk') return; // a replan is already coming
+    if ((this.phase === 'path' || this.phase === 'walking') && this.result?.found) {
+      this.reactToEdit(cells);
+      return;
+    }
+    if (this.busy) return;
     const fix = (c: Vec3i) => (canStand(this.world, c[0], c[1], c[2]) ? c : standableAbove(this.world, c[0], c[1] - 3, c[2]) ?? c);
     this.home = fix(this.home);
     this.goal = fix(this.goal);
     this.at = fix(this.at);
     this.placeIdle();
+  }
+
+  /** Where the follow camera should look, or null when no run is in progress. */
+  followTarget(out: THREE.Vector3): THREE.Vector3 | null {
+    if (!this.running) return null;
+    return out.copy(this.bot.root.position);
+  }
+
+  private reactToEdit(cells: number[]): void {
+    const { nodes, kinds } = this.result!;
+    const i = this.phase === 'walking' ? this.walker.stepIndex : 0;
+    const now = this.phase === 'walking' ? touching(cells, stepFootprint(nodes, kinds, i)) : [];
+    if (now.length) {
+      this.markEdits(now);
+      this.bonk(i);
+      return;
+    }
+    const ahead = touching(cells, pathFootprint(nodes, kinds, this.phase === 'walking' ? i + 1 : 0));
+    if (!ahead.length) return; // doesn't matter to the plan
+    this.markEdits(ahead);
+    if (this.phase === 'path') this.replan(this.at);
+    else {
+      this.replanAtNextNode = true;
+      this.hud.setStatus('replanning');
+    }
+  }
+
+  private markEdits(cells: number[]): void {
+    for (const c of cells.slice(0, 24)) this.effects.flash(voxelCoords(c));
+  }
+
+  /** An edit landed on the step in progress: hop back to where it started, startled, then rethink. */
+  private bonk(i: number): void {
+    const a = this.walker.stepFrom;
+    this.walker.stop();
+    this.effects.cancelAll(); // a half-drilled block stays; a half-placed one goes back in the bag
+    this.showGhost(i);
+    this.bonkCell = [a[0], a[1], a[2]];
+    this.bonkFrom.copy(this.bot.root.position);
+    const sink = isSwimSpot(this.world, a[0], a[1], a[2]) ? SWIM_SINK : 0;
+    this.bonkTo.set(a[0] + 0.5, a[1] + sink, a[2] + 0.5);
+    this.bonkT = 0;
+    this.phase = 'bonk';
+    this.bot.setMood('confused');
+    this.bot.land(true);
+    this.hud.setStatus('replanning');
+  }
+
+  /** Keep the rest of the abandoned path on screen (dashed) until the new one appears. */
+  private showGhost(from: number): void {
+    if (!this.result?.found) return;
+    const n = this.result.nodes.length;
+    if (from >= n - 1) return;
+    this.ghost.show(this.result.nodes.slice(from), this.result.kinds.slice(from), 0);
+    this.ghost.fade(1);
+    this.ghostTimer = 0;
   }
 
   setModel(m: BotModel): void {
@@ -165,22 +262,41 @@ export class BotController {
     this.ribbon.update(t, dt);
     this.goalMarker.update(t);
     this.effects.update(dt);
+    this.ghost.update(t, dt);
+    if (this.ghostTimer > 0) {
+      this.ghostTimer -= dt;
+      this.ghost.fade(Math.max(0, this.ghostTimer / 0.8));
+      if (this.ghostTimer <= 0) this.ghost.clear();
+    }
+
+    if (this.phase === 'bonk') {
+      this.bonkT += dt / BONK_TIME;
+      const k = Math.min(1, this.bonkT);
+      this.bot.root.position.lerpVectors(this.bonkFrom, this.bonkTo, k * (2 - k));
+      this.bot.root.position.y += Math.sin(Math.PI * k) * 0.45;
+      if (k >= 1) this.replan(this.bonkCell);
+    }
 
     if (this.phase === 'revealing' && this.viz.playbackDone && this.result) {
       if (this.result.found) {
         this.ribbon.show(this.result.nodes, this.result.kinds, 0.6);
+        if (this.ghost.group.children.length) this.ghostTimer = 0.8; // the old path fades as the new one draws
         this.phase = 'path';
         this.pathTimer = 0;
       } else {
         this.phase = 'idle';
+        this.running = false;
         this.bot.setMood('confused');
         this.hud.setStatus('stuck');
+        if (this.ghost.group.children.length) this.ghostTimer = 0.8;
       }
     }
     if (this.phase === 'path') {
       this.pathTimer += dt;
       if (this.ribbon.revealed && this.pathTimer > 0.85) {
         this.phase = 'walking';
+        this.running = true;
+        this.replanAtNextNode = false;
         this.bot.setMood('walking');
         this.hud.setStatus('walking');
         this.walker.start(this.result!.nodes, this.result!.kinds);
@@ -203,6 +319,8 @@ export class BotController {
     this.viz.reset();
     this.ribbon.clear();
     this.result = null;
+    this.searchFrom = from;
+    this.searchStatus = status;
     this.phase = 'searching';
     this.bot.setMood('thinking');
     this.hud.setStatus(status);
@@ -224,6 +342,9 @@ export class BotController {
 
   /** A step turned out impossible: think again from here, with what's left in the inventory. */
   private replan(at: Vec3i): void {
+    if (this.phase === 'walking' || this.phase === 'path') this.showGhost(this.phase === 'walking' ? this.walker.stepIndex : 0);
+    this.replanAtNextNode = false;
+    this.replans++;
     this.at = at;
     this.placeIdle();
     this.search(at, 'replanning');
@@ -232,11 +353,16 @@ export class BotController {
   private stopAll(): void {
     this.client.cancel();
     this.walker.stop();
+    this.effects.cancelAll();
     this.phase = 'idle';
+    this.running = false;
+    this.replanAtNextNode = false;
     this.bot.setMood('idle');
     this.hud.setStatus('ready');
     this.viz.reset();
     this.ribbon.clear();
+    this.ghost.clear();
+    this.ghostTimer = 0;
   }
 
   // ---------------------------------------------------------------- execution
@@ -287,7 +413,18 @@ export class BotController {
     this.blocksLeft = Math.max(0, this.blocksLeft - 1);
     this.built++;
     this.updateInventoryHud();
-    this.effects.pop(c, this.opts.colorOf(Mat.Placed), seconds, () => this.setBlock(c, Mat.Placed));
+    this.effects.pop(
+      c,
+      this.opts.colorOf(Mat.Placed),
+      seconds,
+      () => this.setBlock(c, Mat.Placed),
+      () => {
+        // Interrupted before it landed: the block goes back in the bag.
+        this.blocksLeft++;
+        this.built--;
+        this.updateInventoryHud();
+      },
+    );
   }
 
   /** Every bot change goes through here, so the course can be restored later. */
@@ -317,6 +454,7 @@ export class BotController {
   private arrive(): void {
     this.at = [...this.goal];
     this.phase = 'idle';
+    this.running = false;
     this.bot.setMood('happy');
     this.hud.setStatus('happy');
     this.ribbon.fade(0.35);
@@ -325,7 +463,7 @@ export class BotController {
   // ---------------------------------------------------------------- helpers
 
   private updateInventoryHud(): void {
-    this.hud.setStats({ blocks: `${this.blocksLeft}/${this.blocksTotal}`, dug: this.dug, built: this.built });
+    this.hud.setStats({ blocks: `${this.blocksLeft}/${this.blocksTotal}`, dug: this.dug, built: this.built, replans: this.replans });
   }
 
   private placeIdle(): void {

@@ -8,6 +8,8 @@ type Action = number[];
 export class EditHistory {
   private undoStack: Action[] = [];
   private redoStack: Action[] = [];
+  /** Voxel indices changed by the most recent edit / undo / redo. */
+  lastCells: number[] = [];
   constructor(private limit = 200) {}
 
   /** Runs `fn` as one undoable action. Returns how many voxels changed. */
@@ -19,6 +21,7 @@ export class EditHistory {
       world.set(x, y, z, m);
       if (world.get(x, y, z) === m) action.push(voxelIndex(x, y, z), before, m);
     });
+    this.lastCells = cellsOf(action);
     if (action.length) {
       this.undoStack.push(action);
       if (this.undoStack.length > this.limit) this.undoStack.shift();
@@ -31,6 +34,7 @@ export class EditHistory {
     const a = this.undoStack.pop();
     if (!a) return false;
     for (let i = a.length - 3; i >= 0; i -= 3) apply(world, a[i], a[i + 1]);
+    this.lastCells = cellsOf(a);
     this.redoStack.push(a);
     return true;
   }
@@ -39,6 +43,7 @@ export class EditHistory {
     const a = this.redoStack.pop();
     if (!a) return false;
     for (let i = 0; i < a.length; i += 3) apply(world, a[i], a[i + 2]);
+    this.lastCells = cellsOf(a);
     this.undoStack.push(a);
     return true;
   }
@@ -47,6 +52,12 @@ export class EditHistory {
     this.undoStack.length = 0;
     this.redoStack.length = 0;
   }
+}
+
+function cellsOf(a: Action): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < a.length; i += 3) out.push(a[i]);
+  return out;
 }
 
 function apply(world: World, index: number, m: number): void {

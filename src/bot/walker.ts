@@ -78,6 +78,16 @@ export class Walker {
     this.working = false;
   }
 
+  /** The step in progress goes from nodes[stepIndex] to nodes[stepIndex + 1]. */
+  get stepIndex(): number {
+    return this.i;
+  }
+
+  /** The cell the current step started from. */
+  get stepFrom(): Vec3i {
+    return this.a;
+  }
+
   /** The cell the bot is effectively on (for replanning). */
   currentCell(): Vec3i | null {
     if (!this.nodes.length) return null;
@@ -102,6 +112,7 @@ export class Walker {
       if (this.kind === MoveKind.Drop || this.kind === MoveKind.DigDown) this.hooks.onLand(this.a[1] - this.b[1]);
       this.i++;
       this.hooks.onStepDone(this.i, this.kind);
+      if (!this.active) return; // the hook stopped us (e.g. to replan here)
       if (this.i >= this.nodes.length - 1) {
         this.active = false;
         this.hooks.onArrive();

@@ -16,6 +16,8 @@ interface Task {
   dur: number;
   tick(k: number): void;
   done(): void;
+  /** Removes the visuals without finishing (the work was interrupted). */
+  cancel(): void;
 }
 
 /**
@@ -31,6 +33,7 @@ export class Effects {
   private q = new THREE.Quaternion();
   private s = new THREE.Vector3();
   private c = new THREE.Color();
+  private flashGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
 
   constructor() {
     this.mesh = new THREE.InstancedMesh(
@@ -65,7 +68,7 @@ export class Effects {
   }
 
   /** A block being drilled: a flickering, shaking shell plus sparks. Calls `done` at the end. */
-  drill(cell: Vec3i, color: number, seconds: number, done: () => void): void {
+  drill(cell: Vec3i, color: number, seconds: number, done: () => void, onCancel: () => void = () => {}): void {
     const shell = new THREE.Mesh(
       new THREE.BoxGeometry(1.06, 1.06, 1.06),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }),
@@ -91,11 +94,16 @@ export class Effects {
         this.burst(base, color, 16, 3.2);
         done();
       },
+      cancel: () => {
+        this.group.remove(shell);
+        shell.geometry.dispose();
+        onCancel();
+      },
     });
   }
 
   /** A block popping into place with a little overshoot. Calls `done` when it has landed. */
-  pop(cell: Vec3i, color: number, seconds: number, done: () => void): void {
+  pop(cell: Vec3i, color: number, seconds: number, done: () => void, onCancel: () => void = () => {}): void {
     const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
     cube.position.set(cell[0] + 0.5, cell[1] + 0.5, cell[2] + 0.5);
     cube.scale.setScalar(0.01);
@@ -114,6 +122,44 @@ export class Effects {
         (cube.material as THREE.Material).dispose();
         this.burst(cube.position.clone().add(new THREE.Vector3(0, -0.4, 0)), 0xffffff, 6, 1.5);
         done();
+      },
+      cancel: () => {
+        this.group.remove(cube);
+        cube.geometry.dispose();
+        (cube.material as THREE.Material).dispose();
+        onCancel();
+      },
+    });
+  }
+
+  /** Stops every drill / pop in progress without applying it. */
+  cancelAll(): void {
+    const tasks = this.tasks;
+    this.tasks = [];
+    for (const t of tasks) t.cancel();
+  }
+
+  /** "This edit mattered": a red cage on a cell that pulses and fades. */
+  flash(cell: Vec3i, seconds = 1.4): void {
+    const box = new THREE.LineSegments(this.flashGeo, new THREE.LineBasicMaterial({ color: 0xff3b5c, transparent: true, depthTest: false }));
+    box.position.set(cell[0] + 0.5, cell[1] + 0.5, cell[2] + 0.5);
+    box.renderOrder = 5;
+    this.group.add(box);
+    const mat = box.material as THREE.LineBasicMaterial;
+    this.tasks.push({
+      t: 0,
+      dur: seconds,
+      tick: (k) => {
+        box.scale.setScalar(1.04 + 0.12 * Math.abs(Math.sin(k * Math.PI * 4)));
+        mat.opacity = 1 - k * k;
+      },
+      done: () => {
+        this.group.remove(box);
+        mat.dispose();
+      },
+      cancel: () => {
+        this.group.remove(box);
+        mat.dispose();
       },
     });
   }

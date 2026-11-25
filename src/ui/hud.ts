@@ -37,6 +37,7 @@ export interface HudStats {
   blocks: string;
   dug: number;
   built: number;
+  replans: number;
 }
 
 /** The score strip: status plus the numbers that make the "make it work hard" game. */
@@ -55,7 +56,7 @@ export class Hud {
     this.el.innerHTML =
       `<div class="status"><i class="dot"></i><span class="label"></span></div>` +
       stat('expanded', 'nodes') + stat('pathLength', 'steps') + stat('cost', 'cost') + stat('ms', 'ms') +
-      `<i class="sep"></i>` + stat('blocks', 'blocks') + stat('dug', 'dug') + stat('built', 'built') +
+      `<i class="sep"></i>` + stat('blocks', 'blocks') + stat('dug', 'dug') + stat('built', 'built') + stat('replans', 'replans') +
       `<kbd>Space</kbd>`;
     document.body.appendChild(this.el);
     this.dot = this.el.querySelector('.dot')!;
@@ -63,7 +64,7 @@ export class Hud {
     const v = (k: string) => this.el.querySelector(`[data-k="${k}"]`) as HTMLElement;
     this.values = {
       expanded: v('expanded'), pathLength: v('pathLength'), cost: v('cost'), ms: v('ms'),
-      blocks: v('blocks'), dug: v('dug'), built: v('built'),
+      blocks: v('blocks'), dug: v('dug'), built: v('built'), replans: v('replans'),
     };
     this.setStatus('ready');
   }
@@ -81,5 +82,6 @@ export class Hud {
     if (s.blocks !== undefined) this.values.blocks.textContent = s.blocks;
     if (s.dug !== undefined) this.values.dug.textContent = String(s.dug);
     if (s.built !== undefined) this.values.built.textContent = String(s.built);
+    if (s.replans !== undefined) this.values.replans.textContent = String(s.replans);
   }
 }

@@ -15,6 +15,7 @@ import { Hud } from './ui/hud';
 import { createPanel, type Settings, type Stats } from './ui/panel';
 import { loadAssets, type Assets } from './render/assets';
 import { PostFX } from './render/post';
+import { FollowCam } from './render/followCam';
 import { LoadingScreen } from './ui/loading';
 import { CharacterPicker, storedCharacter } from './ui/characterPicker';
 import { renderThumbnails } from './render/characters';
@@ -126,10 +127,11 @@ const syncHotbar = () => hotbar.setState(editor.material, editor.tool);
 hotbar.onSelect = (m) => editor.setMaterial(m);
 hotbar.onTool = (t) => editor.setTool(t);
 editor.onToolChange = syncHotbar;
-editor.onEdit = () => {
+editor.onEdit = (cells) => {
   scheduleUnderside();
-  bot.onWorldEdit();
+  bot.onWorldEdit(cells);
 };
+const follow = new FollowCam(stage, (out) => bot.followTarget(out));
 syncHotbar();
 
 // ---------------------------------------------------------------- look
@@ -296,7 +298,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Dev-only handle for poking at the scene from the console.
-if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets } });
+if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets, follow, history } });
 
 // ---------------------------------------------------------------- loop
 
@@ -317,6 +319,7 @@ stage.renderer.setAnimationLoop((time) => {
   }
   editor.update(dt);
   bot.update(dt, t);
+  follow.update(dt);
   sky.update(t);
   stage.controls.update();
   if (water) water.time.value = t;

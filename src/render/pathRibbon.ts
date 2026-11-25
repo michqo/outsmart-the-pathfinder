@@ -13,6 +13,8 @@ export class PathRibbon {
     uReveal: { value: 0 },
     uLen: { value: 1 },
     uFadeOut: { value: 1 },
+    /** 1 = an abandoned path: grey-red, dashed, no chevrons. */
+    uBroken: { value: 0 },
   };
   private material = new THREE.ShaderMaterial({
     uniforms: this.uniforms,
@@ -26,7 +28,7 @@ export class PathRibbon {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
-      uniform float uTime, uReveal, uLen, uFadeOut;
+      uniform float uTime, uReveal, uLen, uFadeOut, uBroken;
       varying vec2 vUv;
       void main() {
         if (vUv.x > uReveal) discard;
@@ -36,7 +38,14 @@ export class PathRibbon {
         vec3 base = vec3(1.0, 0.33, 0.52);
         vec3 bright = vec3(1.0, 0.86, 0.35);
         float head = smoothstep(uReveal - 0.04, uReveal, vUv.x);
-        gl_FragColor = vec4(mix(base, bright, max(chev, head)), 0.95 * uFadeOut);
+        vec3 col = mix(base, bright, max(chev, head));
+        float a = 0.95;
+        if (uBroken > 0.5) {
+          if (fract(along / 0.6) > 0.55) discard; // dashed
+          col = vec3(0.62, 0.36, 0.42);
+          a = 0.7;
+        }
+        gl_FragColor = vec4(col, a * uFadeOut);
         #include <colorspace_fragment>
       }`,
   });
@@ -50,8 +59,12 @@ export class PathRibbon {
   private ghostEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02));
   private edgeMat = new THREE.LineBasicMaterial({ color: 0xff8a3d });
 
+  /** Dashed grey-red style for a path the bot gave up on (no dig / build markers). */
+  broken = false;
+
   show(nodes: Int32Array, kinds: Uint8Array, revealSeconds = 0.5): void {
     this.clear();
+    this.uniforms.uBroken.value = this.broken ? 1 : 0;
     if (nodes.length < 2) return;
     const pts: THREE.Vector3[] = [];
     let prev: THREE.Vector3 | null = null;
@@ -66,7 +79,7 @@ export class PathRibbon {
       pts.push(p);
       prev = p;
     }
-    this.addMarkers(nodes, kinds);
+    if (!this.broken) this.addMarkers(nodes, kinds);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const len = curve.getLength();
     const geo = new THREE.TubeGeometry(curve, Math.max(16, Math.ceil(len * 10)), 0.14, 8, false);

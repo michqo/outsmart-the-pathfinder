@@ -130,7 +130,12 @@ Review together: the look, the feel, performance, and whether the move-rule appr
   - [x] Less photographic terrain: a "texture realism" slider (default 0.5) blends the scans with soft palette colours
   - [x] Minecraft characters declined (another game's IP). Instead, **Kenney Blocky Characters 2.0** (CC0, 18 characters) with animations mapped per mood: idle / walk / dig (melee swing) / emote yes (goal) / emote no (stuck)
   - [x] Character picker dialog with 3D-rendered thumbnails: opens after loading on a first visit, remembers the choice, reopens via the HUD button or **C**
-- **M4 — Live replanning:** edits that touch the remaining path → cancel + rerun A\* from the bot's cell. Execution-time validation of every step. The replan is visualized. "Follow bot" camera.
+- **M4 — Live replanning:** ✅ done 2026-11-25 (choices: replan only when an edit touches the path; auto-follow during runs + toggle; bonk back on the step in progress)
+  - [x] Edits report the voxels they changed (edit, undo, redo). `bot/pathTouch.ts` computes what the remaining path depends on: target feet/head/floor, hop room for step-ups and pillars, side columns for diagonals, the air column for drops
+  - [x] While searching, any edit restarts the search (its world copy is stale). With the path shown or while walking: only edits that touch the path count. An edit further ahead → replan when the bot reaches the next cell. An edit on the step in progress → it **bonks** (startled hop back), cancels the drill/place in progress (a half-placed block goes back in the bag), then replans
+  - [x] Replans are visualised: red pulsing cages on the edits that mattered, the abandoned path stays dashed until the new one draws, a fresh search from the bot, and a REPLANS counter in the HUD
+  - [x] Follow camera: glides the orbit target after the bot during runs, keeping your angle and zoom. Toggle with the HUD switch or **V**
+  - [x] 6 new tests (54 total)
 - **M5 — Game layer:** score panel, 5–8 built-in levels (tutorial → hard), RLE + `CompressionStream` deflate → base64url share links (round-trip tests), weighted-A\* slider.
 - **M6 — Polish + deploy:** synth blips (optional), loading screen, touch controls, a "how to play" overlay, final name, **Vercel** deploy (`vercel.json` not needed for a plain Vite static build; set up the GitHub repo first).
 
