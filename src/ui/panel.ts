@@ -1,12 +1,13 @@
 import { Pane } from 'tweakpane';
 import { GRASS_STYLES, PALETTES, type GrassStyle } from '../palette';
 import { BOT_MODELS, type BotModel } from '../render/bot';
+import { CHARACTERS } from '../render/characters';
 import { VIZ_STYLES, type VizStyle } from '../render/searchViz';
 import { HOTBAR_STYLES, type HotbarStyle } from './hotbar';
 
 export const STYLES = { Realistic: 'realistic', Stylised: 'stylised' } as const;
 export type Style = (typeof STYLES)[keyof typeof STYLES];
-export const QUALITIES = { High: 'high', Low: 'low' } as const;
+export const QUALITIES = { High: 'high', Medium: 'medium', Low: 'low' } as const;
 export type Quality = (typeof QUALITIES)[keyof typeof QUALITIES];
 
 export interface Settings {
@@ -14,6 +15,7 @@ export interface Settings {
   quality: Quality;
   envIntensity: number;
   bloom: number;
+  realism: number;
   palette: string;
   grassStyle: GrassStyle;
   hotbarStyle: HotbarStyle;
@@ -43,6 +45,7 @@ export interface PanelHandlers {
   onQuality(): void;
   onEnvIntensity(): void;
   onBloom(): void;
+  onRealism(): void;
   onPalette(): void;
   onHotbarStyle(): void;
   onMeshOptions(): void;
@@ -74,13 +77,15 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   gfx.addBinding(settings, 'style', { options: STYLES }).on('change', h.onStyle);
   gfx.addBinding(settings, 'quality', { options: QUALITIES }).on('change', h.onQuality);
   gfx.addBinding(settings, 'envIntensity', { label: 'sky light', min: 0, max: 2, step: 0.01 }).on('change', h.onEnvIntensity);
-  gfx.addBinding(settings, 'bloom', { min: 0, max: 1, step: 0.01 }).on('change', h.onBloom);
+  gfx.addBinding(settings, 'realism', { label: 'texture realism', min: 0, max: 1, step: 0.01 }).on('change', h.onRealism);
+  gfx.addBinding(settings, 'bloom', { label: 'bloom (High)', min: 0, max: 1, step: 0.01 }).on('change', h.onBloom);
 
   const search = pane.addFolder({ title: 'Search' });
   search.addBinding(settings, 'revealSeconds', { label: 'reveal (s)', min: 0, max: 6, step: 0.1 }).on('change', h.onReveal);
   search.addBinding(settings, 'vizStyle', { label: 'viz', options: VIZ_STYLES }).on('change', h.onVizStyle);
   search.addBinding(settings, 'inventory', { label: 'blocks', min: 0, max: 32, step: 1 }).on('change', h.onInventory);
-  search.addBinding(settings, 'botModel', { label: 'robot', options: BOT_MODELS }).on('change', h.onBotModel);
+  const models = { ...Object.fromEntries(CHARACTERS.map((c) => [c.name, c.id])), 'Boxy bot': BOT_MODELS.Boxy, 'Bulb bot': BOT_MODELS.Bulb };
+  search.addBinding(settings, 'botModel', { label: 'character', options: models }).on('change', h.onBotModel);
 
   const look = pane.addFolder({ title: 'Look', expanded: false });
   const paletteOptions = Object.fromEntries(Object.entries(PALETTES).map(([k, p]) => [p.name, k]));

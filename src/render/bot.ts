@@ -1,8 +1,20 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { CharacterRig, characterInfo, loadCharacter } from './characters';
 
 export const BOT_MODELS = { Capsule: 'capsule', Boxy: 'boxy', Bulb: 'bulb' } as const;
-export type BotModel = (typeof BOT_MODELS)[keyof typeof BOT_MODELS];
+/** A procedural robot ('capsule' | 'boxy' | 'bulb') or a character id from CHARACTERS. */
+export type BotModel = string;
+
+/** Which animation clip each mood plays on a Kenney character. */
+const MOOD_CLIP: Record<Mood, { clip: string; speed?: number; once?: boolean }> = {
+  idle: { clip: 'idle' },
+  thinking: { clip: 'idle', speed: 0.6 },
+  walking: { clip: 'walk', speed: 1.7 },
+  working: { clip: 'attack-melee-right', speed: 1.4 },
+  happy: { clip: 'emote-yes', once: true },
+  confused: { clip: 'emote-no', once: true },
+};
 
 export type Mood = 'idle' | 'thinking' | 'walking' | 'working' | 'happy' | 'confused';
 
@@ -34,6 +46,9 @@ export class BotView {
   private nextBlink = 2;
 
   private model: BotModel;
+  private rig: CharacterRig | null = null;
+  /** Fired when an async character model has been swapped in. */
+  onModelReady: (() => void) | null = null;
   private mats = stylisedMats();
 
   constructor(model: BotModel) {
@@ -51,9 +66,24 @@ export class BotView {
   setModel(model: BotModel): void {
     this.model = model;
     this.body.clear();
+    this.rig?.dispose();
+    this.rig = null;
     this.eye = new THREE.Group();
     this.antenna = new THREE.Group();
     this.legs = [];
+    const info = characterInfo(model);
+    if (info.file) {
+      // A downloaded character: loads async (cached), then swaps in if still wanted.
+      loadCharacter(info.file).then((gltf) => {
+        if (this.model !== model || this.rig) return;
+        this.rig = new CharacterRig(gltf);
+        this.body.add(this.rig.object);
+        const m = MOOD_CLIP[this.mood];
+        this.rig.play(m.clip, { fade: 0, speed: m.speed, once: m.once });
+        this.onModelReady?.();
+      });
+      return;
+    }
     const m = this.mats;
     const add = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) => {
       const mesh = new THREE.Mesh(geo, mat);
@@ -109,6 +139,8 @@ export class BotView {
     if (mood === this.mood) return;
     this.mood = mood;
     this.moodTime = 0;
+    const m = MOOD_CLIP[mood];
+    this.rig?.play(m.clip, { speed: m.speed, once: m.once });
   }
 
   /** Squash on landing; `big` adds a wobble (long drops). */
@@ -181,6 +213,13 @@ export class BotView {
     const s = this.squash * Math.sin(Math.min(1, this.squash * 6) * Math.PI * 0.5);
     tiltZ += Math.sin(t * 16) * 0.22 * this.wobble;
 
+    if (this.rig) {
+      // The clips animate the limbs; keep only a light body motion on top.
+      if (this.mood === 'walking') (bob = 0), (tiltX = 0.03), (tiltZ *= 0.4);
+      if (this.mood === 'working') tiltX = 0.08;
+      this.rig.update(dt);
+      if (this.rig.head && this.mood === 'thinking') this.rig.head.rotation.y = lookX * 7;
+    }
     this.body.position.y = bob + hop;
     this.body.scale.set(1 + s * 0.6, 1 - s, 1 + s * 0.6);
     this.body.rotation.set(tiltX, 0, tiltZ);
@@ -188,8 +227,10 @@ export class BotView {
     this.eye.position.x = damp(this.eye.position.x, lookX, dt, 8);
     this.eye.rotation.x = -lookY * 3;
     if (this.mood !== 'thinking' && this.mood !== 'working') this.antenna.rotation.z = damp(this.antenna.rotation.z, -tiltZ * 1.5, dt, 6);
-    this.legs[0].rotation.x = legSwing;
-    this.legs[1].rotation.x = -legSwing;
+    if (this.legs.length) {
+      this.legs[0].rotation.x = legSwing;
+      this.legs[1].rotation.x = -legSwing;
+    }
   }
 }
 

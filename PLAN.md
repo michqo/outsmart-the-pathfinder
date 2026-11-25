@@ -124,6 +124,12 @@ Review together: the look, the feel, performance, and whether the move-rule appr
   - [x] Post (High): MSAA → GTAO (half res, transparent objects hidden from its pre-pass) → bloom (quarter res, threshold 2.6) → ACES → grade + vignette
   - [x] Quality: **High** (DPR ≤ 2, 4k shadows, post, 2-sample anti-tiling) / **Low** (DPR ≤ 1.5, 2k shadows, no post, 1 sample)
   - [x] Perf: High 5.7 ms/frame at 2048×1536 (12.8 ms before the half/quarter-res AO and bloom), Low 2.7 ms at 1024×768. Projected ~10 ms full-screen on a Retina MacBook
+- **Loading + characters:** ✅ done 2026-11-25
+  - [x] Loading screen in `index.html` (shows before JS), with file progress and a shader precompile, so the stylised look never flashes
+  - [x] Lag fix: new **Medium** default (direct render, no GTAO/bloom, 1 texture sample, DPR ≤ 1.5, 2k shadows): ~3 ms/frame. High keeps the full post chain
+  - [x] Less photographic terrain: a "texture realism" slider (default 0.5) blends the scans with soft palette colours
+  - [x] Minecraft characters declined (another game's IP). Instead, **Kenney Blocky Characters 2.0** (CC0, 18 characters) with animations mapped per mood: idle / walk / dig (melee swing) / emote yes (goal) / emote no (stuck)
+  - [x] Character picker dialog with 3D-rendered thumbnails: opens after loading on a first visit, remembers the choice, reopens via the HUD button or **C**
 - **M4 — Live replanning:** edits that touch the remaining path → cancel + rerun A\* from the bot's cell. Execution-time validation of every step. The replan is visualized. "Follow bot" camera.
 - **M5 — Game layer:** score panel, 5–8 built-in levels (tutorial → hard), RLE + `CompressionStream` deflate → base64url share links (round-trip tests), weighted-A\* slider.
 - **M6 — Polish + deploy:** synth blips (optional), loading screen, touch controls, a "how to play" overlay, final name, **Vercel** deploy (`vercel.json` not needed for a plain Vite static build; set up the GitHub repo first).

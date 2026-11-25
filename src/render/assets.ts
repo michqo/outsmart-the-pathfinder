@@ -35,8 +35,14 @@ async function pixels(url: string): Promise<Uint8ClampedArray> {
   return ctx.getImageData(0, 0, SIZE, SIZE).data;
 }
 
+/** Called as each file finishes: (files done, files total). */
+export type Progress = (done: number, total: number) => void;
+const FILE_COUNT = 13; // 9 array layers + 3 rock maps + the HDRI
+let tick: () => void = () => {};
+const counted = <T>(p: Promise<T>): Promise<T> => p.then((v) => (tick(), v));
+
 async function arrayTexture(suffix: string, srgb: boolean): Promise<THREE.DataArrayTexture> {
-  const layers = await Promise.all(TERRAIN_LAYERS.map((id) => pixels(`${BASE}${id}_${suffix}_1k.jpg`)));
+  const layers = await Promise.all(TERRAIN_LAYERS.map((id) => counted(pixels(`${BASE}${id}_${suffix}_1k.jpg`))));
   const data = new Uint8Array(SIZE * SIZE * 4 * layers.length);
   layers.forEach((l, i) => data.set(l, i * SIZE * SIZE * 4));
   const tex = new THREE.DataArrayTexture(data, SIZE, SIZE, layers.length);
@@ -72,7 +78,7 @@ function findSun(env: THREE.DataTexture): THREE.Vector3 {
 }
 
 function rockMap(suffix: string, srgb: boolean): Promise<THREE.Texture> {
-  return new THREE.TextureLoader().loadAsync(`${BASE}rock_face_03_${suffix}_1k.jpg`).then((t) => {
+  return counted(new THREE.TextureLoader().loadAsync(`${BASE}rock_face_03_${suffix}_1k.jpg`)).then((t) => {
     t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.anisotropy = 8;
@@ -80,7 +86,9 @@ function rockMap(suffix: string, srgb: boolean): Promise<THREE.Texture> {
   });
 }
 
-export async function loadAssets(): Promise<Assets> {
+export async function loadAssets(onProgress: Progress = () => {}): Promise<Assets> {
+  let done = 0;
+  tick = () => onProgress(++done, FILE_COUNT);
   const [albedo, normal, arm, map, normalMap, armMap, env] = await Promise.all([
     arrayTexture('diff', true),
     arrayTexture('nor_gl', false),
@@ -88,7 +96,7 @@ export async function loadAssets(): Promise<Assets> {
     rockMap('diff', true),
     rockMap('nor_gl', false),
     rockMap('arm', false),
-    new HDRLoader().loadAsync(`${BASE}sky_2k.hdr`),
+    counted(new HDRLoader().loadAsync(`${BASE}sky_2k.hdr`)),
   ]);
   env.mapping = THREE.EquirectangularReflectionMapping;
   return { albedo, normal, arm, rock: { map, normalMap, armMap }, env, sunDir: findSun(env) };

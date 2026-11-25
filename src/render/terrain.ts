@@ -50,6 +50,9 @@ vec3 greener(vec3 c) {
   return mix(c, l * vec3(0.6, 1.12, 0.3), uGreen);
 }
 uniform vec3 uPlaced, uCrystal;
+/** 0 = soft palette colours, 1 = full photo textures. */
+uniform float uRealism;
+uniform vec3 uGrassTop, uGrassSide, uSoil, uStone;
 
 int voxAt(ivec3 c) {
   if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= ${SX} || c.y >= ${SY} || c.z >= ${SZ}) return 0;
@@ -99,6 +102,7 @@ const TERRAIN_SURFACE = /* glsl */ `
   vec2 tuv = sUv * uScale;
   vec3 sAlb, sNT, sArm;
   vec3 sEmis = vec3(0.0);
+  vec3 sFlat = vec3(1.0);
   float macro = 0.9 + 0.2 * vnoise(vVox.xz * 0.09 + vVox.y * 0.07);
 
   if (sMat == 1) {
@@ -107,8 +111,10 @@ const TERRAIN_SURFACE = /* glsl */ `
       // Patches with more leaf litter break up the green.
       float dry = smoothstep(0.5, 0.9, vnoise(vVox.xz * 0.06 + 3.0));
       sAlb = mix(greener(sAlb), sAlb, dry * 0.6);
+      sFlat = uGrassTop;
     } else if (sN.y < -0.5) {
       sampleLayer(1.0, tuv, sAlb, sNT, sArm);
+      sFlat = uSoil;
     } else {
       // Moss drips over the soil from the top edge, with a ragged noisy border.
       vec3 a1, n1, r1, a2, n2, r2;
@@ -121,14 +127,17 @@ const TERRAIN_SURFACE = /* glsl */ `
       sAlb = mix(a2, a1, g);
       sNT = normalize(mix(n2, n1, g));
       sArm = mix(r2, r1, g);
+      sFlat = mix(uSoil, uGrassSide, g);
     }
     sAlb *= macro;
   } else if (sMat == 2) {
     sampleLayer(1.0, tuv, sAlb, sNT, sArm);
     sAlb *= macro;
+    sFlat = uSoil;
   } else if (sMat == 3) {
     sampleLayer(2.0, tuv, sAlb, sNT, sArm);
     sAlb *= macro;
+    sFlat = uStone;
   } else if (sMat == 4) {
     // Crystal: glassy, faceted (rock normals, stronger), a faint inner glow.
     sampleLayer(2.0, tuv * 1.6, sAlb, sNT, sArm);
@@ -147,6 +156,14 @@ const TERRAIN_SURFACE = /* glsl */ `
     sAlb = vec3(1.0, 0.0, 1.0);
     sNT = vec3(0.0, 0.0, 1.0);
     sArm = vec3(1.0, 1.0, 0.0);
+  }
+
+  if (sMat <= 3) {
+    // Blend the scans towards soft palette colours (less photographic), keeping some texture detail.
+    float l = dot(sAlb, vec3(0.3, 0.59, 0.11));
+    vec3 detailed = sFlat * (0.55 + 1.1 * l); // palette hue, texture luminance
+    sAlb = mix(mix(sFlat, detailed, 0.6), sAlb, uRealism) * mix(0.96, 1.0, macro);
+    sNT = normalize(vec3(sNT.xy * mix(0.4, 1.0, uRealism), sNT.z));
   }
 
   // Bevels on exposed (convex) edges only: no grid lines on flat ground.
@@ -171,6 +188,11 @@ export interface TerrainMaterial {
     uGreen: { value: number };
     uPlaced: { value: THREE.Color };
     uCrystal: { value: THREE.Color };
+    uRealism: { value: number };
+    uGrassTop: { value: THREE.Color };
+    uGrassSide: { value: THREE.Color };
+    uSoil: { value: THREE.Color };
+    uStone: { value: THREE.Color };
   };
   setLowQuality(low: boolean): void;
 }
@@ -183,6 +205,11 @@ export function createTerrainMaterial(assets: Assets, vox: VoxelTexture): Terrai
     uGreen: { value: 0.7 },
     uPlaced: { value: new THREE.Color(0xff8a3c) },
     uCrystal: { value: new THREE.Color(0xb59cff) },
+    uRealism: { value: 0.5 },
+    uGrassTop: { value: new THREE.Color() },
+    uGrassSide: { value: new THREE.Color() },
+    uSoil: { value: new THREE.Color() },
+    uStone: { value: new THREE.Color() },
   };
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   material.onBeforeCompile = (shader) => {

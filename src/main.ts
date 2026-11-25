@@ -15,6 +15,10 @@ import { Hud } from './ui/hud';
 import { createPanel, type Settings, type Stats } from './ui/panel';
 import { loadAssets, type Assets } from './render/assets';
 import { PostFX } from './render/post';
+import { LoadingScreen } from './ui/loading';
+import { CharacterPicker, storedCharacter } from './ui/characterPicker';
+import { renderThumbnails } from './render/characters';
+import { BotView } from './render/bot';
 import { createTerrainMaterial, createWaterMaterial, VoxelTexture, type TerrainMaterial, type WaterMaterial } from './render/terrain';
 import { Mat } from './world/materials';
 import { generateStressLevel, generateTestIsland } from './world/testIsland';
@@ -22,15 +26,16 @@ import { World } from './world/world';
 
 const settings: Settings = {
   style: 'realistic',
-  quality: 'high',
+  quality: 'medium',
   envIntensity: 1.0,
   bloom: 0.3,
+  realism: 0.5,
   palette: 'meadow',
   grassStyle: 'drip',
   hotbarStyle: 'chips',
   revealSeconds: 1.5,
   vizStyle: 'glow',
-  botModel: 'capsule',
+  botModel: storedCharacter() ?? 'capsule',
   inventory: 16,
   ao: true,
   aoStrength: 0.5,
@@ -158,6 +163,12 @@ function applyPalette(): void {
     stage.sun.intensity = 2.6;
     terrain!.uniforms.uPlaced.value.setHex(p.blocks.placed.top);
     terrain!.uniforms.uCrystal.value.setHex(p.blocks.crystal.side);
+    const u = terrain!.uniforms;
+    u.uRealism.value = settings.realism;
+    u.uGrassTop.value.setHex(p.blocks.grass.top);
+    u.uGrassSide.value.setHex(p.blocks.grass.side);
+    u.uSoil.value.setHex(p.blocks.soil.side);
+    u.uStone.value.setHex(p.blocks.stone.side);
   } else {
     stage.sun.position.copy(stage.sun.target.position).addScaledVector(DEFAULT_SUN, 85);
     stage.sun.color.setHex(p.sun.color);
@@ -173,11 +184,13 @@ function applyPalette(): void {
 }
 
 function applyQuality(): void {
-  const high = settings.quality === 'high';
+  // High: full post chain. Medium: direct render, lighter shader. Low: also 1x pixels, small shadows.
+  const q = settings.quality;
+  const high = q === 'high';
   const r = stage.renderer;
-  r.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : 1.5));
+  r.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : q === 'medium' ? 1.5 : 1));
   r.setSize(window.innerWidth, window.innerHeight);
-  const size = high ? 4096 : 2048;
+  const size = high ? 4096 : q === 'medium' ? 2048 : 1024;
   const shadow = stage.sun.shadow;
   if (shadow.mapSize.x !== size) {
     shadow.mapSize.set(size, size);
@@ -199,17 +212,44 @@ function applyMeshOptions(): void {
 applyQuality();
 applyPalette();
 
-loadAssets()
-  .then((a) => {
+const loading = new LoadingScreen();
+loading.progress(0.02, 'Loading textures…');
+loadAssets((done, total) => loading.progress((done / total) * 0.85, `Loading textures… ${done}/${total}`))
+  .then(async (a) => {
     assets = a;
     terrain = createTerrainMaterial(a, voxels);
     water = createWaterMaterial();
     applyQuality();
     applyPalette();
+    chunks.update();
+    loading.progress(0.92, 'Compiling shaders…');
+    // Compile every program now, so the first visible frames don't hitch.
+    await stage.renderer.compileAsync(stage.scene, stage.camera);
   })
-  .catch((err) => console.error('Realistic assets failed to load; staying stylised.', err));
+  .catch((err) => console.error('Realistic assets failed to load; staying stylised.', err))
+  .finally(() => loading.done().then(() => onLoaded()));
 
-createPanel(settings, stats, {
+/** Runs once the loading screen is gone: the character picker (shown on a first visit). */
+function onLoaded(): void {
+  const picker = new CharacterPicker(
+    settings.botModel,
+    (id) => {
+      settings.botModel = id;
+      bot.setModel(id);
+      pane.refresh();
+    },
+    (onEach) =>
+      renderThumbnails(() => {
+        const v = new BotView('capsule');
+        v.setRealistic(realistic());
+        v.update(0, 0);
+        return v.root;
+      }, onEach),
+  );
+  if (!storedCharacter()) picker.open();
+}
+
+const pane = createPanel(settings, stats, {
   onStyle: applyPalette,
   onQuality: () => {
     applyQuality();
@@ -217,6 +257,7 @@ createPanel(settings, stats, {
   },
   onEnvIntensity: applyPalette,
   onBloom: () => (post.bloom.strength = settings.bloom),
+  onRealism: () => terrain && (terrain.uniforms.uRealism.value = settings.realism),
   onPalette: applyPalette,
   onHotbarStyle: () => hotbar.setStyle(settings.hotbarStyle),
   onMeshOptions: applyMeshOptions,
