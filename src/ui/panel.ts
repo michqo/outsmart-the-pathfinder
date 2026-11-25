@@ -16,6 +16,8 @@ export interface Settings {
   envIntensity: number;
   bloom: number;
   realism: number;
+  clouds: number;
+  wind: number;
   palette: string;
   grassStyle: GrassStyle;
   hotbarStyle: HotbarStyle;
@@ -46,6 +48,7 @@ export interface PanelHandlers {
   onEnvIntensity(): void;
   onBloom(): void;
   onRealism(): void;
+  onClouds(): void;
   onPalette(): void;
   onHotbarStyle(): void;
   onMeshOptions(): void;
@@ -78,6 +81,8 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   gfx.addBinding(settings, 'quality', { options: QUALITIES }).on('change', h.onQuality);
   gfx.addBinding(settings, 'envIntensity', { label: 'sky light', min: 0, max: 2, step: 0.01 }).on('change', h.onEnvIntensity);
   gfx.addBinding(settings, 'realism', { label: 'texture realism', min: 0, max: 1, step: 0.01 }).on('change', h.onRealism);
+  gfx.addBinding(settings, 'clouds', { label: 'cloud cover', min: 0, max: 1, step: 0.01 }).on('change', h.onClouds);
+  gfx.addBinding(settings, 'wind', { min: 0, max: 4, step: 0.05 }).on('change', h.onClouds);
   gfx.addBinding(settings, 'bloom', { label: 'bloom (High)', min: 0, max: 1, step: 0.01 }).on('change', h.onBloom);
 
   const search = pane.addFolder({ title: 'Search' });

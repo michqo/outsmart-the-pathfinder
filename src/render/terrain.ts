@@ -1,3 +1,4 @@
+import { CLOUD_GLSL, type CloudUniforms } from './clouds';
 import * as THREE from 'three';
 import { SX, SY, SZ, World } from '../world/world';
 import type { Assets } from './assets';
@@ -197,7 +198,16 @@ export interface TerrainMaterial {
   setLowQuality(low: boolean): void;
 }
 
-export function createTerrainMaterial(assets: Assets, vox: VoxelTexture): TerrainMaterial {
+/**
+ * `clouds` (optional): the sky's cloud field, so drifting clouds shade the ground.
+ * `islandOffset`: where voxel space sits in the world (clouds live in world space).
+ */
+export function createTerrainMaterial(
+  assets: Assets,
+  vox: VoxelTexture,
+  clouds?: CloudUniforms,
+  islandOffset = new THREE.Vector3(),
+): TerrainMaterial {
   const uniforms = {
     uScale: { value: 0.28 },
     uBevel: { value: 0.07 },
@@ -218,6 +228,8 @@ export function createTerrainMaterial(assets: Assets, vox: VoxelTexture): Terrai
       tNor: { value: assets.normal },
       tArm: { value: assets.arm },
       tVox: { value: vox.texture },
+      ...(clouds ?? {}),
+      uIslandOffset: { value: islandOffset },
     });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vVox;\nvarying vec3 vVoxN;')
@@ -229,8 +241,23 @@ export function createTerrainMaterial(assets: Assets, vox: VoxelTexture): Terrai
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = sArm.b;')
       .replace('#include <normal_fragment_maps>', 'normal = normalize((viewMatrix * vec4(sNW, 0.0)).xyz);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += sEmis;');
+    if (clouds) {
+      // Cloud shadows: the HDRI's own sun is part of the image-based light too, so a
+      // cloud dims that as well (not fully: the open sky around it still lights the ground).
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\n${CLOUD_GLSL}\nuniform vec3 uIslandOffset;`)
+        .replace(
+          '#include <lights_fragment_end>',
+          `#include <lights_fragment_end>
+          float cloudLight = cloudShadow(vVox + uIslandOffset);
+          reflectedLight.directDiffuse *= cloudLight;
+          reflectedLight.directSpecular *= cloudLight;
+          reflectedLight.indirectDiffuse *= mix(1.0, cloudLight, 0.7);
+          reflectedLight.indirectSpecular *= mix(1.0, cloudLight, 0.7);`,
+        );
+    }
   };
-  material.customProgramCacheKey = () => 'terrain-pbr';
+  material.customProgramCacheKey = () => (clouds ? 'terrain-pbr-clouds' : 'terrain-pbr');
   return {
     material,
     uniforms,

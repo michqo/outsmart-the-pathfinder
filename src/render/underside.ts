@@ -8,6 +8,8 @@ export interface RockMaps {
   map: THREE.Texture;
   normalMap: THREE.Texture;
   armMap: THREE.Texture;
+  /** Shared with the terrain material, so the rock blends towards the same stone colour. */
+  uniforms?: { uRealism: { value: number }; uStone: { value: THREE.Color } };
 }
 
 const MAX_DEPTH = 17;
@@ -35,7 +37,9 @@ export function buildUnderside(world: World, palette: Palette, rock: RockMaps | 
   const col = (x: number, z: number) => (x < 0 || z < 0 || x >= SX || z >= SZ ? -1 : bottom[x + z * SX]);
 
   // Corners: (SX+1) x (SZ+1). A corner is used when any of its 4 columns is solid; it's on
-  // the rim when one of them is empty. Its height is the lowest bottom among its solid columns.
+  // the rim when one of them is empty. It hangs from the HIGHEST bottom among its solid
+  // columns: the surface then starts inside (or flush with) every column around it, so no
+  // gap can open under a shallower column; deeper columns just show as stone steps.
   const W = SX + 1, D = SZ + 1;
   const used = new Uint8Array(W * D);
   const top = new Float32Array(W * D);
@@ -43,15 +47,15 @@ export function buildUnderside(world: World, palette: Palette, rock: RockMaps | 
   const queue: number[] = [];
   for (let z = 0; z < D; z++)
     for (let x = 0; x < W; x++) {
-      let solid = 0, lo = 1e9;
+      let solid = 0, hi = -1;
       for (const [dx, dz] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) {
         const b = col(x + dx, z + dz);
-        if (b >= 0) (solid++, (lo = Math.min(lo, b)));
+        if (b >= 0) (solid++, (hi = Math.max(hi, b)));
       }
       const i = x + z * W;
       if (!solid) continue;
       used[i] = 1;
-      top[i] = lo;
+      top[i] = hi;
       if (solid < 4) {
         dist[i] = 0;
         queue.push(i);
@@ -75,8 +79,8 @@ export function buildUnderside(world: World, palette: Palette, rock: RockMaps | 
   // Vertex positions: hang each corner below the island bottom.
   const pos = new Float32Array(W * D * 3);
   const colors = new Float32Array(W * D * 3);
-  const cTop = new THREE.Color(rock ? 0xd8d2cc : palette.rock.top);
-  const cTip = new THREE.Color(rock ? 0x77716f : palette.rock.tip);
+  const cTop = new THREE.Color(rock ? 0xffffff : palette.rock.top);
+  const cTip = new THREE.Color(rock ? 0x6f6a68 : palette.rock.tip);
   const tmp = new THREE.Color();
   for (let z = 0; z < D; z++)
     for (let x = 0; x < W; x++) {
@@ -128,6 +132,8 @@ function triplanarRock(rock: RockMaps): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
+      uRealism: rock.uniforms?.uRealism ?? { value: 1 },
+      uStone: rock.uniforms?.uStone ?? { value: new THREE.Color(1, 1, 1) },
       tRockAlb: { value: rock.map },
       tRockNor: { value: rock.normalMap },
       tRockArm: { value: rock.armMap },
@@ -140,6 +146,8 @@ function triplanarRock(rock: RockMaps): THREE.MeshStandardMaterial {
         '#include <common>',
         `#include <common>
         uniform sampler2D tRockAlb, tRockNor, tRockArm;
+        uniform float uRealism;
+        uniform vec3 uStone;
         varying vec3 vTp;
         varying vec3 vTpN;`,
       )
@@ -157,6 +165,9 @@ function triplanarRock(rock: RockMaps): THREE.MeshStandardMaterial {
         vec3 nz = texture2D(tRockNor, uvZ).xyz * 2.0 - 1.0;
         vec3 rNW = normalize(
           vec3(0.0, nx.y, nx.x) * tw.x + vec3(ny.x, 0.0, ny.y) * tw.y + vec3(nz.x, nz.y, 0.0) * tw.z + tN);
+        // Same blend as the terrain's stone: palette hue with the scan's luminance detail.
+        float rL = dot(rAlb, vec3(0.3, 0.59, 0.11));
+        rAlb = mix(mix(uStone, uStone * (0.55 + 1.1 * rL), 0.6), rAlb, uRealism);
         diffuseColor.rgb *= rAlb * mix(1.0, rArm.r, 0.8);`,
       )
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = rArm.g;')

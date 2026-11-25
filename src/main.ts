@@ -38,6 +38,8 @@ const settings: Settings = {
   envIntensity: 1.0,
   bloom: 0.3,
   realism: 0.5,
+  clouds: 0.45,
+  wind: 1,
   palette: 'meadow',
   grassStyle: 'drip',
   hotbarStyle: 'chips',
@@ -90,7 +92,7 @@ function rebuildUnderside(): void {
     underside.geometry.dispose();
     (underside.material as THREE.Material).dispose();
   }
-  underside = buildUnderside(world, palette(), realistic() ? assets!.rock : null);
+  underside = buildUnderside(world, palette(), realistic() ? { ...assets!.rock, uniforms: terrain!.uniforms } : null);
   stage.island.add(underside);
   stats.undersideMs = performance.now() - t0;
 }
@@ -172,7 +174,7 @@ function applyPalette(): void {
   chunks.setRealistic(real ? { terrain: terrain!.material, water: water!.material } : null);
   chunks.setPalette(p, settings.grassStyle);
   sky.setPalette(p);
-  sky.setReal(real ? assets!.env : null, settings.envIntensity);
+  sky.setReal(real ? (assets!.env as THREE.DataTexture) : null, settings.envIntensity, real ? assets!.sunDir : undefined);
   stage.scene.environment = real ? assets!.env : null;
   stage.scene.environmentIntensity = settings.envIntensity;
   stage.hemi.visible = !real;
@@ -220,6 +222,7 @@ function applyQuality(): void {
     shadow.map = null;
   }
   terrain?.setLowQuality(!high);
+  sky.setLowQuality(q === 'low');
   post.resize();
 }
 
@@ -239,7 +242,7 @@ loading.progress(0.02, 'Loading textures…');
 loadAssets((done, total) => loading.progress((done / total) * 0.85, `Loading textures… ${done}/${total}`))
   .then(async (a) => {
     assets = a;
-    terrain = createTerrainMaterial(a, voxels);
+    terrain = createTerrainMaterial(a, voxels, sky.cloud, stage.island.position);
     water = createWaterMaterial();
     applyQuality();
     applyPalette();
@@ -288,6 +291,10 @@ const pane = createPanel(settings, stats, {
   },
   onEnvIntensity: applyPalette,
   onBloom: () => (post.bloom.strength = settings.bloom),
+  onClouds: () => {
+    sky.cloud.uCover.value = settings.clouds;
+    sky.cloud.uWind.value.set(4.5, 1.6).multiplyScalar(settings.wind);
+  },
   onRealism: () => terrain && (terrain.uniforms.uRealism.value = settings.realism),
   onPalette: applyPalette,
   onHotbarStyle: () => hotbar.setStyle(settings.hotbarStyle),
@@ -483,7 +490,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Dev-only handle for poking at the scene from the console.
-if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets, follow, history } });
+if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, sky, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets, follow, history } });
 
 // ---------------------------------------------------------------- loop
 
