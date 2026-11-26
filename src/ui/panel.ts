@@ -3,7 +3,7 @@ import { GRASS_STYLES, PALETTES, type GrassStyle } from '../palette';
 import type { BotModel } from '../render/bot';
 import { VIZ_STYLES, type VizStyle } from '../render/searchViz';
 
-export const QUALITIES = { High: 'high', Medium: 'medium', Low: 'low' } as const;
+export const QUALITIES = { High: 'high', Medium: 'medium' } as const;
 export type Quality = (typeof QUALITIES)[keyof typeof QUALITIES];
 
 export interface Settings {

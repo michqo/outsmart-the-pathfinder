@@ -99,11 +99,7 @@ export class Sky {
             vec3 sky = grad(d.y) + uSunColor * (pow(sd, 1200.0) * 40.0 + pow(sd, 10.0) * 0.18);
             float t = (CLOUD_HEIGHT - cameraPosition.y) / max(d.y, 0.012);
             vec2 p = cameraPosition.xz + d.xz * t;
-            #ifdef LOW_QUALITY
-              int oct = 4;
-            #else
               int oct = t > 2500.0 ? 4 : 6;
-            #endif
             float dens = cloudDensity(p, oct);
             if (dens < 0.002) return sky;
             // Light: how much cloud sits between this point and the sun (cheap self-shadow).
@@ -124,11 +120,7 @@ export class Sky {
             vec3 sun = normalize(uSunDir);
             float t = (-180.0 - cameraPosition.y) / min(d.y, -0.012);
             vec2 p = cameraPosition.xz + d.xz * t;
-            #ifdef LOW_QUALITY
-              int oct = 4;
-            #else
               int oct = t > 2500.0 ? 4 : 6;
-            #endif
             vec2 q = (p - uDrift * 0.5) / 130.0 + 37.0;
             q += 0.4 * vec2(cFbm(q * 0.6 + uTime * 0.003, 3), cFbm(q * 0.6 + 9.1, 3));
             float dens = smoothstep(0.36, 0.62, cFbm(q, oct));
@@ -241,14 +233,6 @@ export class Sky {
   hazeColor(out = new THREE.Color()): THREE.Color {
     if (this.realDome.visible) return out.copy(this.realUniforms.uBands.value[1]).multiplyScalar(this.realUniforms.uIntensity.value);
     return out.copy(this.uniforms.uHorizon.value);
-  }
-
-  setLowQuality(low: boolean): void {
-    const m = this.realDome.material as THREE.ShaderMaterial;
-    if (!!m.defines.LOW_QUALITY === low) return;
-    if (low) m.defines.LOW_QUALITY = '';
-    else delete m.defines.LOW_QUALITY;
-    m.needsUpdate = true;
   }
 
   update(t: number): void {

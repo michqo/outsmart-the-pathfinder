@@ -218,6 +218,11 @@ export class BotController {
   }
 
   /** Where the follow camera should look, or null when no run is in progress. */
+  /** Which way the bot faces, in world space. */
+  facing(out: THREE.Vector3): THREE.Vector3 {
+    return this.bot.root.getWorldDirection(out);
+  }
+
   followTarget(out: THREE.Vector3): THREE.Vector3 | null {
     if (!this.running) return null;
     return out.copy(this.bot.root.position);

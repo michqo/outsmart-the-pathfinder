@@ -48,13 +48,13 @@ describe('island generator', () => {
     expect(fnv(generateIsland({ seed: 6, ix: 1, iz: 2 }).data)).not.toBe(fnv(a.data));
   });
 
-  it('sizes stay in range, and the phone cap shrinks only the big ones', () => {
+  it('sizes stay in range, and a size cap shrinks only the big ones', () => {
     for (const seed of SEEDS) {
       const { size } = islandParams({ seed, ix: 0, iz: 0 });
       expect(size).toBeGreaterThanOrEqual(ISLAND_SIZE.min);
       expect(size).toBeLessThanOrEqual(ISLAND_SIZE.max);
-      const capped = generateIsland({ seed, ix: 0, iz: 0, maxSize: ISLAND_SIZE.phone });
-      expect(capped.size).toBe(Math.min(size, ISLAND_SIZE.phone));
+      const capped = generateIsland({ seed, ix: 0, iz: 0, maxSize: 80 });
+      expect(capped.size).toBe(Math.min(size, 80));
       expect(capped.dims.sx).toBeLessThanOrEqual(96);
     }
   });

@@ -33,13 +33,7 @@ const CSS = /* css */ `
 .hb-hint { position: fixed; left: 14px; bottom: 14px; max-width: calc(50vw - 330px); font: 500 11px/1.6 ui-rounded, system-ui, sans-serif; color: #3b3355aa; user-select: none; pointer-events: none; }
 .hb-hint b { color: #3b3355; font-weight: 600; }
 @media (max-width: 1180px) { .hb-hint { display: none; } }
-@media (max-width: 720px), (pointer: coarse) {
-  .hb { bottom: 10px; gap: 4px; padding: 5px; max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; }
-  .hb .mat { padding: 6px; flex: none; }
-  .hb .mat .sw { width: 22px; height: 22px; }
-  .hb .mat .label, .hb .mat .key { display: none; }
-  .hb .tool { flex: none; width: 38px; height: 38px; }
-}
+@media (max-width: 1000px) { .hb .mat .label { display: none; } }
 `;
 
 export class Hotbar {

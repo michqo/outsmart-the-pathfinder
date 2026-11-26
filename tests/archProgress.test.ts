@@ -22,20 +22,19 @@ describe('archipelago progress', () => {
     expect(archPosition()).toEqual({ seed: 42, at: [1, -1] });
   });
 
-  it('keeps the best and never loses stars; caps and seeds are separate', () => {
-    expect(recordIsland(7, 0, 0, undefined, 100, 2)).toBe(true);
-    expect(recordIsland(7, 0, 0, undefined, 90, 1)).toBe(false);
+  it('keeps the best and never loses stars; seeds are separate', () => {
+    expect(recordIsland(7, 0, 0, 100, 2)).toBe(true);
+    expect(recordIsland(7, 0, 0, 90, 1)).toBe(false);
     expect(islandProgress(7, 0, 0)).toEqual({ best: 100, stars: 2 });
-    expect(islandProgress(7, 0, 0, 80)).toEqual({ best: 0, stars: 0 });
     expect(islandProgress(8, 0, 0)).toEqual({ best: 0, stars: 0 });
-    recordIsland(7, 1, 0, undefined, 5, 0);
+    recordIsland(7, 1, 0, 5, 0);
     expect(starredCount(7)).toBe(1);
   });
 
   it('a ★ at home opens its neighbours and nothing further', () => {
     const seed = 3;
     const home = islandAt(seed, 0, 0)!;
-    recordIsland(seed, 0, 0, undefined, 50, 1);
+    recordIsland(seed, 0, 0, 50, 1);
     const stars = (a: { ix: number; iz: number }) => islandProgress(seed, a.ix, a.iz).stars;
     for (const n of neighbours(seed, home)) expect(isOpen(seed, n, stars)).toBe(true);
     const far = [3, 4].flatMap((r) => [islandAt(seed, r, 0), islandAt(seed, 0, -r)]).filter((a) => a && !neighbours(seed, a).some((b) => b.ring === 0));

@@ -38,13 +38,9 @@ export function islandAt(seed: number, ix: number, iz: number): ArchIsland | nul
   return { ix, iz, ring, tier: Math.min(5, ring + 1), centre: [ix * CELL + jx, jy, iz * CELL + jz] };
 }
 
-/**
- * The generator spec for an island. Size grows with the ring (home is small and friendly);
- * `cap` is the touch-device limit.
- */
-export function archSpec(seed: number, a: ArchIsland, cap?: number): IslandSpec {
-  const ringCap = a.ring === 0 ? 56 : a.ring === 1 ? 80 : ISLAND_SIZE.max;
-  const maxSize = Math.min(ringCap, cap ?? ISLAND_SIZE.max);
+/** The generator spec for an island. Size grows with the ring (home is small and friendly). */
+export function archSpec(seed: number, a: ArchIsland): IslandSpec {
+  const maxSize = a.ring === 0 ? 56 : a.ring === 1 ? 80 : ISLAND_SIZE.max;
   return { seed, ix: a.ix, iz: a.iz, maxSize: maxSize < ISLAND_SIZE.max ? maxSize : undefined };
 }
 

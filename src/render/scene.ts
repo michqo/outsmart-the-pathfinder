@@ -17,8 +17,8 @@ export interface Stage {
 const FOV = 38;
 
 /**
- * Portrait screens (phones) would crop the island's sides, so below a square aspect the
- * vertical FOV widens to keep the horizontal view a square screen would have.
+ * Narrow (portrait) windows would crop the island's sides, so below a square aspect the
+ * vertical FOV widens to keep the horizontal view a square window would have.
  */
 function fitFov(camera: THREE.PerspectiveCamera): void {
   const half = THREE.MathUtils.degToRad(FOV / 2);
@@ -51,8 +51,6 @@ export function createStage(): Stage {
   controls.minDistance = 6;
   controls.maxDistance = 220;
   controls.maxPolarAngle = Math.PI * 0.78; // allow peeking at the underside
-  // Phones in portrait: start further back so the whole island fits across.
-  if (camera.aspect < 0.8) camera.position.sub(controls.target).multiplyScalar(1.3).add(controls.target);
   controls.update();
 
   const island = new THREE.Group();

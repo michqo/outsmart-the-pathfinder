@@ -12,7 +12,7 @@ import { drainage, erode, EROSION } from './hydro';
  */
 export const GEN_VERSION = 2;
 
-export const ISLAND_SIZE = { min: 32, max: 112, phone: 80 } as const;
+export const ISLAND_SIZE = { min: 32, max: 112 } as const;
 const SY = 48;
 /** Sea level of the island's lowland, in voxels. */
 const BASE = 14;
@@ -36,7 +36,7 @@ export const BIOME_TINT: readonly [number, number, number][] = [
   [0.62, 0.56, 0.62],
 ];
 
-/** Which island of which archipelago. `maxSize` caps the footprint (phones). */
+/** Which island of which archipelago. `maxSize` caps the footprint (the inner rings stay small). */
 export interface IslandSpec {
   seed: number;
   ix: number;

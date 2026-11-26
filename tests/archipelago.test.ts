@@ -28,12 +28,11 @@ describe('archipelago layout', () => {
     }
   });
 
-  it('sizes grow outward, and the touch cap applies everywhere', () => {
+  it('sizes grow outward', () => {
     const seed = 11;
     for (const a of islandsAround(seed, 0, 0, 3)) {
       const size = islandParams(archSpec(seed, a)).size;
       expect(size).toBeLessThanOrEqual(a.ring === 0 ? 56 : a.ring === 1 ? 80 : 112);
-      expect(islandParams(archSpec(seed, a, 80)).size).toBeLessThanOrEqual(80);
     }
   });
 

@@ -16,11 +16,6 @@ const CSS = /* css */ `
 .hud .stat b { font-size: 15px; font-variant-numeric: tabular-nums; }
 .hud .stat span { font-size: 9px; opacity: .55; text-transform: uppercase; letter-spacing: .06em; }
 .hud kbd { font: inherit; padding: 2px 7px; border-radius: 6px; background: #3b3355; color: #fff; }
-@media (max-width: 720px) {
-  .hud { top: 10px; gap: 10px; padding: 6px 12px; }
-  .hud .opt, .hud .sep, .hud kbd { display: none; }
-  .hud .status { min-width: 0; }
-}
 `;
 
 /** Stats hidden on small screens. */

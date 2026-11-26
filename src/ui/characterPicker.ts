@@ -7,7 +7,6 @@ const CSS = /* css */ `
   box-shadow: 0 6px 24px #5a4a7a22, inset 0 0 0 1px #fff; cursor: pointer;
   font: 600 12px/1 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; color: #3b3355; }
 .cp-open:hover { background: #fff; }
-@media (max-width: 720px) { .cp-open { left: 10px; top: 10px; padding: 5px; font-size: 0; gap: 0; } }
 .cp-open img, .cp-open .ph { width: 30px; height: 30px; border-radius: 9px; background: #e9e4f3; object-fit: cover; }
 .cp { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column;
   border-radius: 22px; background: #fbf9ff; box-shadow: 0 24px 80px #1d1a2c55;

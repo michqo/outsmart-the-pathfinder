@@ -5,12 +5,13 @@ import { Handles } from './edit/handles';
 import { islandLevel, SANDBOX, starsFor, type Level } from './levels/levels';
 import { IslandClient } from './gen/client';
 import { archRadius, archSpec, dailyLabel, dailySeed, islandAt, islandsAround, isOpen, neighbours, type ArchIsland } from './gen/archipelago';
-import { generateIsland, ISLAND_SIZE, islandKey, islandParams } from './gen/island';
+import { generateIsland, islandKey, islandParams } from './gen/island';
 import { tuneIsland } from './gen/tune';
 import { cachedTuning, storeTuning } from './gen/tuneCache';
 import { archPosition, islandProgress, recordIsland, setArchPosition, starredCount } from './levels/archProgress';
 import { SkyIslands, type SkyBridge, type SkyIsland } from './render/skyIslands';
 import { TIME_LIGHT, timeOfDayFor, type TimeOfDay } from './render/timeOfDay';
+import { Drift } from './render/drift';
 import { Biome } from './gen/island';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
@@ -42,7 +43,7 @@ import { generateTestIsland } from './world/testIsland';
 import { sameDims, World, type Dims } from './world/world';
 
 const settings: Settings = {
-  quality: 'medium',
+  quality: 'high',
   envIntensity: 1.0,
   bloom: 0.3,
   realism: 0.5,
@@ -69,6 +70,9 @@ const chunks = new ChunkRenderer(world);
 const skyIslands = new SkyIslands();
 const sky = new Sky();
 stage.island.add(chunks.group);
+/** Blossom, fireflies, sand, snow and embers over the biomes. */
+const drift = new Drift();
+stage.island.add(drift.group);
 stage.scene.add(sky.group);
 
 const palette = () => PALETTES[settings.palette];
@@ -170,7 +174,7 @@ editor.onEdit = (cells) => {
   if (cells.length > 0) invalidateDuel();
 };
 hotbar.onUndo = () => editor.undo();
-const follow = new FollowCam(stage, (out) => bot.followTarget(out));
+const follow = new FollowCam(stage, (out) => bot.followTarget(out), (out) => bot.facing(out));
 syncHotbar();
 
 // ---------------------------------------------------------------- look
@@ -244,13 +248,12 @@ function applyPalette(): void {
 }
 
 function applyQuality(): void {
-  // High: full post chain. Medium: direct render, lighter shader. Low: also 1x pixels, small shadows.
-  const q = settings.quality;
-  const high = q === 'high';
+  // High: full post chain. Medium: direct render, lighter shader, smaller shadow map.
+  const high = settings.quality === 'high';
   const r = stage.renderer;
-  r.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : q === 'medium' ? 1.5 : 1));
+  r.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : 1.5));
   r.setSize(window.innerWidth, window.innerHeight);
-  const size = high ? 4096 : q === 'medium' ? 2048 : 1024;
+  const size = high ? 4096 : 2048;
   const shadow = stage.sun.shadow;
   if (shadow.mapSize.x !== size) {
     shadow.mapSize.set(size, size);
@@ -258,7 +261,6 @@ function applyQuality(): void {
     shadow.map = null;
   }
   terrain?.setLowQuality(!high);
-  sky.setLowQuality(q === 'low');
   post.resize();
 }
 
@@ -462,11 +464,6 @@ function startLevel(level: Level): void {
 }
 
 const islands = new IslandClient();
-/**
- * Touch devices get smaller islands from the same seed (see PLAN.md, M8). Decided by the
- * input, not the window width, so resizing a desktop window never changes the island.
- */
-const archCap: number | undefined = matchMedia('(pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
 
 // ---------------------------------------------------------------- archipelago
 
@@ -479,7 +476,7 @@ stage.scene.add(skyIslands.group);
 skyIslands.onPick = (a) => void goToIsland(archSeed, a, true);
 
 const inArchipelago = () => archHere !== null;
-const starsOn = (a: ArchIsland) => islandProgress(archSeed, a.ix, a.iz, archCap).stars;
+const starsOn = (a: ArchIsland) => islandProgress(archSeed, a.ix, a.iz).stars;
 const archName = (a: ArchIsland) => (a.ring === 0 ? 'Home island' : `Island ${a.ix}, ${a.iz}`);
 
 /** The island you were last on in this archipelago (home if none). */
@@ -497,7 +494,7 @@ function archLevel(a: ArchIsland, spec: ReturnType<typeof archSpec>, island: Par
 
 /** Generates and surveys an island (cached surveys skip the work). */
 async function loadArchIsland(seed: number, a: ArchIsland, onProgress: (f: number) => void): Promise<Level> {
-  const spec = archSpec(seed, a, archCap);
+  const spec = archSpec(seed, a);
   const cached = cachedTuning(spec, a.tier);
   const { island, tuning } = await islands.generate(spec, cached ? undefined : a.tier, onProgress);
   const t = cached ?? tuning!;
@@ -506,7 +503,7 @@ async function loadArchIsland(seed: number, a: ArchIsland, onProgress: (f: numbe
 }
 
 /** Window scale (as in fitStage) of an island, without generating it. */
-const windowScale = (seed: number, a: ArchIsland) => (Math.ceil((islandParams(archSpec(seed, a, archCap)).size + 8) / 16) * 16) / 64;
+const windowScale = (seed: number, a: ArchIsland) => (Math.ceil((islandParams(archSpec(seed, a)).size + 8) / 16) * 16) / 64;
 
 /** Travels to an island: flies there over the sky when it's in view, else just loads it. */
 async function goToIsland(seed: number, a: ArchIsland, fly: boolean): Promise<void> {
@@ -571,11 +568,7 @@ function updateFlight(dt: number): void {
   }
 }
 
-/**
- * Zoomed out far enough for the other islands' markers: the current island spans less than
- * 60% of the screen's narrower side (so phones in portrait, which start further back, don't
- * show them during normal play).
- */
+/** Zoomed out far enough for the other islands' markers: the island spans < 60% of the screen's narrower side. */
 function zoomedOut(): boolean {
   const cam = stage.camera;
   const dist = cam.position.distanceTo(stage.controls.target);
@@ -683,7 +676,7 @@ function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void 
   for (const a of list)
     infos.set(`${a.ix},${a.iz}`, {
       a,
-      radius: archRadius(archSpec(seed, a, archCap)),
+      radius: archRadius(archSpec(seed, a)),
       open: isOpen(seed, a, starsOf),
       stars: starsOf(a),
       current: a.ix === here.ix && a.iz === here.iz,
@@ -692,7 +685,7 @@ function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void 
   void (async () => {
     for (const a of missing) {
       try {
-        const lod = await islands.lod(archSpec(seed, a, archCap));
+        const lod = await islands.lod(archSpec(seed, a));
         if (archSeed !== seed || !archHere) return;
         skyIslands.provide(a, lod);
       } catch (err) {
@@ -721,7 +714,7 @@ function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void 
 function islandResult(a: ArchIsland, stars: number, nodes: number): boolean {
   const had = starsOn(a);
   const before = new Map(islandsAround(archSeed, a.ix, a.iz, 2).map((b) => [`${b.ix},${b.iz}`, starsOn(b)]));
-  const better = recordIsland(archSeed, a.ix, a.iz, archCap, nodes, stars);
+  const better = recordIsland(archSeed, a.ix, a.iz, nodes, stars);
   if (had > 0 || stars === 0) return better;
   const opened = neighbours(archSeed, a).filter((b) => !isOpen(archSeed, b, (c) => (c.ix === a.ix && c.iz === a.iz ? 0 : starsOn(c)))).length;
   refreshSky(a, before);
@@ -739,7 +732,7 @@ function startArchipelago(): void {
   const target = (pos && islandAt(archSeed, pos.at[0], pos.at[1])) || islandAt(archSeed, 0, 0)!;
   const home = islandAt(archSeed, 0, 0)!;
   for (const a of target === home ? [home] : [target, home]) {
-    const spec = archSpec(archSeed, a, archCap);
+    const spec = archSpec(archSeed, a);
     let tuning = cachedTuning(spec, a.tier);
     if (!tuning && a !== home) continue;
     const island = generateIsland(spec);
@@ -832,6 +825,7 @@ function applyCourse(c: Course, compare = false): void {
     applyPalette();
   }
   sfx.setAmbience(ambienceFor(c.level, time));
+  drift.set(world, c.level.biome, time);
   history.clear();
   touched.clear();
   sandboxBest = 0;
@@ -839,7 +833,7 @@ function applyCourse(c: Course, compare = false): void {
   bot.setGoal(c.goal);
   bot.setStart(c.start);
   bot.setInventory(c.inventory);
-  score.setLevel(c.level, archHere && c.level.kind === 'island' ? islandProgress(archSeed, archHere.ix, archHere.iz, archCap).best : 0);
+  score.setLevel(c.level, archHere && c.level.kind === 'island' ? islandProgress(archSeed, archHere.ix, archHere.iz).best : 0);
   score.setEdits(0, c.level.budget);
   setDuelMode(compare);
 }
@@ -886,9 +880,11 @@ stage.renderer.setAnimationLoop((time) => {
   updateFlight(dt);
   updateGlide(dt);
   updateLanterns();
+  drift.update(t, stage.camera, stage.renderer);
   stage.controls.update();
   skyIslands.update(dt, stage.camera, inArchipelago() && !flight && !busy && !duelActive && zoomedOut());
   if (water) water.time.value = t;
+  if (terrain) terrain.uniforms.uWind.value = t * settings.wind;
   if (settings.quality === 'high') post.render(dt);
   else stage.renderer.render(stage.scene, stage.camera);
 

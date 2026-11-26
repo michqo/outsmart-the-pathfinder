@@ -15,7 +15,7 @@ export interface IslandProgress {
 interface ArchState {
   seed: number;
   at: [number, number];
-  /** seed → island id → progress (`cap` suffix when the island was the touch-device size). */
+  /** seed → island id → progress. */
   islands: Record<string, Record<string, IslandProgress>>;
 }
 
@@ -39,7 +39,7 @@ function write(s: ArchState): void {
 let memory: ArchState | null = null;
 const state = (): ArchState => (memory ??= read() ?? { seed: -1, at: [0, 0], islands: {} });
 
-const pkey = (ix: number, iz: number, cap?: number) => islandId(ix, iz) + (cap ? `:s${cap}` : '');
+const pkey = (ix: number, iz: number) => islandId(ix, iz);
 
 /** Where the player was: archipelago seed and island, or null on a first visit. */
 export function archPosition(): { seed: number; at: [number, number] } | null {
@@ -54,15 +54,15 @@ export function setArchPosition(seed: number, at: [number, number]): void {
   write(s);
 }
 
-export function islandProgress(seed: number, ix: number, iz: number, cap?: number): IslandProgress {
-  return state().islands[String(seed)]?.[pkey(ix, iz, cap)] ?? { best: 0, stars: 0 };
+export function islandProgress(seed: number, ix: number, iz: number): IslandProgress {
+  return state().islands[String(seed)]?.[pkey(ix, iz)] ?? { best: 0, stars: 0 };
 }
 
 /** Records a finished run; returns true for a new best. Stars never go down. */
-export function recordIsland(seed: number, ix: number, iz: number, cap: number | undefined, nodes: number, stars: number): boolean {
+export function recordIsland(seed: number, ix: number, iz: number, nodes: number, stars: number): boolean {
   const s = state();
   const bySeed = (s.islands[String(seed)] ??= {});
-  const k = pkey(ix, iz, cap);
+  const k = pkey(ix, iz);
   const old = bySeed[k] ?? { best: 0, stars: 0 };
   const better = nodes > old.best;
   bySeed[k] = { best: Math.max(old.best, nodes), stars: Math.max(old.stars, stars) };

@@ -11,10 +11,6 @@ const CSS = /* css */ `
 .cn .run kbd { font: inherit; font-size: 10px; padding: 3px 6px; border-radius: 6px; background: #ffffff26; }
 .cn .run.busy { background: #6c5ce7; }
 @media (max-width: 1100px) { .cn { bottom: 76px; } }
-@media (max-width: 720px), (pointer: coarse) {
-  .cn { right: 10px; bottom: 70px; flex-direction: column-reverse; align-items: flex-end; }
-  .cn .run kbd { display: none; }
-}
 `;
 
 export interface CornerHandlers {

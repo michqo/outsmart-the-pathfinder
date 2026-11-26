@@ -49,18 +49,6 @@ const CSS = /* css */ `
 .sp .duel tbody th { text-align: left; }
 .sp .duel .duel-status { margin: 8px 0 0; font-weight: 600; }
 .sp .duel .timing-note { margin: 4px 0; font-weight: 500; }
-.sp .lv .tog { display: none; opacity: .5; }
-@media (max-width: 720px) {
-  .sp { left: 10px; top: 58px; width: 214px; padding: 10px 12px; }
-  .sp .lv { cursor: pointer; }
-  .sp .lv .tog { display: inline; }
-  .sp .lv small.kind { display: none; }
-  .sp .score b { font-size: 22px; }
-  .sp.min .lvhint, .sp.min .best, .sp.min .stars, .sp.min .bar { display: none; }
-  .sp.min.in-duel .bar:not([hidden]) { display: block; }
-  .sp.min .btns { margin-top: 8px; }
-  .sp .duel-toggle { min-height: 38px; }
-  .sp.in-duel { max-height: calc(100dvh - 78px); }
 }
 .sp-toast { position: fixed; left: 50%; top: 70px; z-index: 1100; transform: translate(-50%, -8px); padding: 8px 16px;
   border-radius: 12px; background: #3b3355; color: #fff; font: 600 13px/1.2 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
@@ -111,7 +99,7 @@ export class ScorePanel {
     document.head.appendChild(css);
     this.el.className = 'sp';
     this.el.innerHTML = `
-      <div class="lv"><b class="name"></b><small class="kind"></small><small class="tog">▾</small></div>
+      <div class="lv"><b class="name"></b><small class="kind"></small></div>
       <p class="lvhint"></p>
       <div class="regular-score">
       <div class="score"><b class="nodes">–</b><span class="unit">nodes</span></div>
@@ -140,11 +128,6 @@ export class ScorePanel {
     this.toastEl.className = 'sp-toast';
     document.body.appendChild(this.toastEl);
 
-    if (matchMedia('(max-width: 720px)').matches) this.el.classList.add('min');
-    this.q('.lv').onclick = () => {
-      const min = this.el.classList.toggle('min');
-      this.q('.tog').textContent = min ? '▾' : '▴';
-    };
     const levels = this.q<HTMLButtonElement>('.levels');
     levels.onclick = () => h.onLevels(levels);
     this.q('.reset').onclick = () => h.onReset();
