@@ -4,6 +4,7 @@ import { MAT_KEYS } from '../world/materials';
 import { COLOR_KINDS, COLOR_TABLE_SIZE, meshChunk, type MeshData, type MeshOptions } from '../world/mesher';
 import type { World } from '../world/world';
 import { BIOME_TINT_GLSL, BiomeTint } from './biomeTint';
+import { CLOUD_GLSL, type CloudUniforms } from './clouds';
 
 /** Owns one opaque + one water mesh per chunk and rebuilds only dirty chunks. */
 export class ChunkRenderer {
@@ -12,6 +13,10 @@ export class ChunkRenderer {
   readonly waterMaterial: THREE.MeshStandardMaterial;
   /** Shader uniform: per-block brightness jitter, 0 = flat colour. */
   readonly jitter = { value: 0.07 };
+  /** Seconds (scaled by the wind): drives the canopy sway and the water ripples. */
+  readonly windTime = { value: 0 };
+  /** The sky's cloud field, for cloud shadows on the terrain. Set before the first frame. */
+  clouds: CloudUniforms | null = null;
   readonly opts: MeshOptions = {
     colorTable: new Float32Array(COLOR_TABLE_SIZE),
     aoCurve: [0.55, 0.7, 0.85, 1],
@@ -24,82 +29,121 @@ export class ChunkRenderer {
   private tris = new Int32Array(0);
   /** The world.shapeVersion the per-chunk arrays are sized for. */
   private shape = -1;
-  private palette: { p: Palette; grass: GrassStyle } | null = null;
-  /** Realistic materials, when the style is on (set by setRealistic). */
-  private real: { terrain: THREE.Material; water: THREE.Material } | null = null;
   /** Called after any chunk rebuild (the voxel texture re-uploads then). */
   onRebuilt: (() => void) | null = null;
-  /** Per-column biome colour, shared with the realistic terrain material. */
+  /** Per-column biome colour. */
   readonly tint = new BiomeTint();
 
   constructor(private world: World) {
     this.opaqueMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
     this.opaqueMaterial.onBeforeCompile = (shader) => {
-      shader.uniforms.uJitter = this.jitter;
-      Object.assign(shader.uniforms, this.tint.uniforms);
+      Object.assign(shader.uniforms, { uJitter: this.jitter, uWindTime: this.windTime }, this.tint.uniforms, this.clouds ?? {});
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vCell;\nvarying vec3 vLocal;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocal = transformed;')
+        .replace(
+          '#include <common>',
+          `#include <common>
+          attribute float sway;
+          uniform float uWindTime;
+          varying vec3 vCell;
+          varying vec3 vLocal;
+          varying vec3 vWorld;`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          vec3 rest = transformed;
+          vLocal = rest;
+          // Canopies sway as whole sheets: one smooth field over the world, so neighbouring
+          // leaf faces move together and never open gaps between them.
+          vec3 wRest = (modelMatrix * vec4(rest, 1.0)).xyz;
+          float ph = dot(wRest.xz, vec2(0.11, 0.07)) + wRest.y * 0.05;
+          vec2 lean = vec2(sin(uWindTime * 1.25 + ph), cos(uWindTime * 0.95 + ph * 1.4)) * 0.075
+                    + vec2(sin(uWindTime * 3.1 + ph * 4.0), sin(uWindTime * 2.7 + ph * 3.3)) * 0.02;
+          transformed.xz += lean * sway;
+          transformed.y += sin(uWindTime * 1.7 + ph * 2.0) * 0.025 * sway;`,
+        )
         .replace(
           '#include <project_vertex>',
           // Push slightly inside the block so every face of a voxel gets the same cell id.
-          '#include <project_vertex>\nvCell = floor((modelMatrix * vec4(transformed - objectNormal * 0.5, 1.0)).xyz + 0.001);',
+          `#include <project_vertex>
+          vCell = floor((modelMatrix * vec4(rest - objectNormal * 0.5, 1.0)).xyz + 0.001);
+          vWorld = wRest;`,
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `#include <common>\nvarying vec3 vCell;\nvarying vec3 vLocal;\nuniform float uJitter;\n${BIOME_TINT_GLSL}`)
+        .replace(
+          '#include <common>',
+          `#include <common>
+          varying vec3 vCell;
+          varying vec3 vLocal;
+          varying vec3 vWorld;
+          uniform float uJitter;
+          ${BIOME_TINT_GLSL}
+          ${this.clouds ? CLOUD_GLSL : ''}`,
+        )
         .replace(
           '#include <color_fragment>',
           '#include <color_fragment>\nfloat hj = fract(sin(dot(vCell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);\ndiffuseColor.rgb *= (1.0 + (hj - 0.5) * uJitter) * biomeTint(vLocal);',
         );
+      if (this.clouds)
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <lights_fragment_end>',
+          // Cloud shadows: patches of shade drifting across the island with the wind.
+          '#include <lights_fragment_end>\nfloat cloudLight = cloudShadow(vWorld);\nreflectedLight.directDiffuse *= cloudLight;\nreflectedLight.directSpecular *= cloudLight;',
+        );
     };
+    this.opaqueMaterial.customProgramCacheKey = () => (this.clouds ? 'chunks-clouds' : 'chunks');
     this.waterMaterial = new THREE.MeshStandardMaterial({
       transparent: true,
       opacity: 0.72,
-      roughness: 0.25,
+      roughness: 0.18,
       metalness: 0,
       depthWrite: false,
     });
+    this.waterMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime = this.windTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWorldW;\nvarying float vUpW;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorldW = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvUpW = objectNormal.y;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float uWindTime;
+          varying vec3 vWorldW;
+          varying float vUpW;
+          /** Slope of a few crossing ripple trains on the water surface. */
+          vec2 ripple(vec2 p, float t) {
+            vec2 g = vec2(0.0);
+            g += vec2(0.8, 0.6) * cos(dot(p, vec2(0.8, 0.6)) * 1.9 - t * 2.1) * 0.6;
+            g += vec2(-0.5, 0.86) * cos(dot(p, vec2(-0.5, 0.86)) * 2.7 - t * 2.6) * 0.4;
+            g += vec2(0.97, -0.26) * cos(dot(p, vec2(0.97, -0.26)) * 4.3 - t * 3.4) * 0.25;
+            return g;
+          }`,
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          `#include <normal_fragment_maps>
+          // Only the surface ripples; the sides of a waterfall or a pool's edge stay flat.
+          if (vUpW > 0.5) {
+            vec2 g = ripple(vWorldW.xz, uWindTime) * 0.16;
+            normal = normalize((viewMatrix * vec4(normalize(vec3(-g.x, 1.0, -g.y)), 0.0)).xyz);
+            diffuseColor.rgb *= 1.0 + 0.08 * (g.x + g.y);
+          }`,
+        );
+    };
   }
 
   setPalette(p: Palette, grassStyle: GrassStyle): void {
-    this.palette = { p, grass: grassStyle };
     const t = this.opts.colorTable;
-    if (this.real) {
-      // Textures carry the colour; vertex colours then hold only the baked AO.
-      t.fill(1);
-      this.world.markAllDirty();
-      return;
-    }
     fillColorTable(t, p, grassStyle);
     this.waterMaterial.color.setHex(p.water);
     this.waterMaterial.opacity = p.waterOpacity;
     this.world.markAllDirty();
   }
 
-  /** Switches between the stylised flat colours and realistic PBR materials (null = stylised). */
-  setRealistic(real: { terrain: THREE.Material; water: THREE.Material } | null): void {
-    this.real = real;
-    const solid = this.solidMaterial(), water = this.liquidMaterial();
-    for (const m of this.opaque) if (m) m.material = solid;
-    for (const m of this.water) if (m) m.material = water;
-    if (this.palette) this.setPalette(this.palette.p, this.palette.grass);
-  }
-
-  private solidMaterial(): THREE.Material {
-    return this.real?.terrain ?? this.opaqueMaterial;
-  }
-
-  private liquidMaterial(): THREE.Material {
-    return this.real?.water ?? this.waterMaterial;
-  }
-
   setWireframe(on: boolean): void {
     this.opaqueMaterial.wireframe = on;
     this.waterMaterial.wireframe = on;
-    if (this.real) {
-      (this.real.terrain as THREE.MeshStandardMaterial).wireframe = on;
-      (this.real.water as THREE.MeshStandardMaterial).wireframe = on;
-    }
   }
 
   /** Rebuilds dirty chunks. Returns how many were rebuilt. */
@@ -115,8 +159,8 @@ export class ChunkRenderer {
       const cz = Math.floor(ci / w.cx) % w.cz;
       const cy = Math.floor(ci / (w.cx * w.cz));
       const { opaque, water } = meshChunk(this.world, cx, cy, cz, this.opts);
-      this.opaque[ci] = this.swap(this.opaque[ci], opaque, this.solidMaterial(), true);
-      this.water[ci] = this.swap(this.water[ci], water, this.liquidMaterial(), false);
+      this.opaque[ci] = this.swap(this.opaque[ci], opaque, this.opaqueMaterial, true);
+      this.water[ci] = this.swap(this.water[ci], water, this.waterMaterial, false);
       this.tris[ci] = (opaque.indices.length + water.indices.length) / 3;
       count++;
     }
@@ -151,7 +195,10 @@ export class ChunkRenderer {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
-    if (solid) g.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
+    if (solid) {
+      g.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
+      g.setAttribute('sway', new THREE.BufferAttribute(data.sway, 1, true));
+    }
     g.setIndex(new THREE.BufferAttribute(data.indices, 1));
     g.computeBoundingSphere();
     const mesh = new THREE.Mesh(g, mat);

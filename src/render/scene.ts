@@ -74,7 +74,7 @@ export function createStage(): Stage {
   sc.far = 200;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
-  sun.shadow.radius = 3;
+  sun.shadow.radius = 5; // soft edges (PCF)
   scene.add(sun, sun.target);
 
   window.addEventListener('resize', () => {

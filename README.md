@@ -7,10 +7,10 @@ The bot isn't helpless. It can dig (slate and timber are slow, crystal can't be 
 - **An archipelago of generated islands:** every island is a challenge with an edit budget and ★★★ targets. Zoom out to see the neighbouring islands floating in the haze; earn a ★ to grow bridges to them, then click one to fly there. Difficulty rises with each ring away from home. Each day brings a new archipelago (the same for everyone), or enter a seed or choose **Random** in **Levels**.
 - **Free build:** a sandbox island with no limits, where you can also drag the bot and the flag
 - **Algorithm Duel:** on any island, compare A* against Dijkstra or Weighted A* on the same course. The table shows states expanded, planned cost, and active worker time. The visual traces play at the same event rate, so a shorter trace finishes sooner; playback is not a compute benchmark.
-- **How islands are made:** eroded hills with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands, forest, snowy peaks, desert, volcanic), cut through with caves, overhanging ledges and stone arches, and dotted with walled ruins behind timber gates. Each island has its own time of day (dawn, day, dusk or night), and its own life: blossom, fireflies, blowing sand, snow or embers drift over the biomes. Each island is surveyed the first time you land (up to a few seconds) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. A seed gives the same islands and stars on every computer.
+- **How islands are made:** eroded hills with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands, forest, snowy peaks, desert, volcanic), cut through with caves, overhanging ledges and stone arches, and dotted with walled ruins behind timber gates. Each island has its own time of day (dawn, day, dusk or night), and its own life: tree canopies sway, water ripples, cloud shadows drift across, and blossom, fireflies, blowing sand, snow or embers drift over the biomes. Each island is surveyed the first time you land (up to a few seconds) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. A seed gives the same islands and stars on every computer.
 - **Bot's eye (B):** ride along behind the bot during a run, watching the search spread around it; **Follow bot (V)** keeps your own angle instead
 - Made for computers (Mac or PC, mouse or trackpad); phones and tablets get a note instead of the game
-- Requires WebGL 2. The island is playable with simple graphics while the detailed textures load in the background.
+- Requires WebGL 2.
 
 ## Controls
 
@@ -42,6 +42,6 @@ It's a plain static Vite build: on Vercel, import the GitHub repo and use the Vi
 
 ## Credits
 
-Textures and sky: [Poly Haven](https://polyhaven.com) (CC0). Characters: [Blocky Characters](https://kenney.nl/assets/blocky-characters) by Kenney (CC0). Details in `public/assets/CREDITS.md`.
+Characters: [Blocky Characters](https://kenney.nl/assets/blocky-characters) by Kenney (CC0). Details in `public/assets/CREDITS.md`.
 
 Sound effects: [Kenney](https://kenney.nl) Impact Sounds and Interface Sounds (CC0).

@@ -4,8 +4,6 @@ import type { BotModel } from '../render/bot';
 import { VIZ_STYLES, type VizStyle } from '../render/searchViz';
 
 export interface Settings {
-  envIntensity: number;
-  realism: number;
   clouds: number;
   wind: number;
   palette: string;
@@ -31,8 +29,6 @@ export interface Stats {
 }
 
 export interface PanelHandlers {
-  onEnvIntensity(): void;
-  onRealism(): void;
   onClouds(): void;
   onPalette(): void;
   onMeshOptions(): void;
@@ -64,8 +60,6 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   const paletteOptions = Object.fromEntries(Object.entries(PALETTES).map(([k, p]) => [p.name, k]));
   look.addBinding(settings, 'palette', { options: paletteOptions }).on('change', h.onPalette);
   look.addBinding(settings, 'grassStyle', { label: 'grass', options: GRASS_STYLES }).on('change', h.onPalette);
-  look.addBinding(settings, 'envIntensity', { label: 'sky light', min: 0, max: 2, step: 0.01 }).on('change', h.onEnvIntensity);
-  look.addBinding(settings, 'realism', { label: 'texture realism', min: 0, max: 1, step: 0.01 }).on('change', h.onRealism);
   look.addBinding(settings, 'clouds', { label: 'cloud cover', min: 0, max: 1, step: 0.01 }).on('change', h.onClouds);
   look.addBinding(settings, 'wind', { min: 0, max: 4, step: 0.05 }).on('change', h.onClouds);
   look.addBinding(settings, 'ao', { label: 'AO' }).on('change', h.onMeshOptions);

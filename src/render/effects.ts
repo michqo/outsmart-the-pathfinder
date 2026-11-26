@@ -9,6 +9,9 @@ interface Particle {
   life: number;
   max: number;
   size: number;
+  /** Tumble: a spin axis and speed (radians per second). */
+  axis: THREE.Vector3;
+  spin: number;
 }
 
 interface Task {
@@ -21,8 +24,9 @@ interface Task {
 }
 
 /**
- * Small, cheap juice: debris bursts, a shaking "drill" overlay on a block being dug,
- * and a springy pop for placed blocks. Everything is in island (voxel) coordinates.
+ * Small, cheap juice: tumbling debris, a shaking "drill" overlay on a block being dug, a
+ * springy pop for the bot's blocks, and a settle / crumble for every block the player
+ * places or removes. Everything is in island (voxel) coordinates.
  */
 export class Effects {
   readonly group = new THREE.Group();
@@ -30,10 +34,11 @@ export class Effects {
   private mesh: THREE.InstancedMesh;
   private tasks: Task[] = [];
   private m = new THREE.Matrix4();
-  private q = new THREE.Quaternion();
   private s = new THREE.Vector3();
   private c = new THREE.Color();
   private flashGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+  private unitBox = new THREE.BoxGeometry(1, 1, 1);
+  private spinQ = new THREE.Quaternion();
 
   constructor() {
     this.mesh = new THREE.InstancedMesh(
@@ -43,7 +48,7 @@ export class Effects {
     );
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
-    this.mesh.castShadow = false;
+    this.mesh.castShadow = true;
     for (let i = 0; i < MAX_PARTICLES; i++) this.mesh.setColorAt(i, this.c.set(0xffffff));
     this.group.add(this.mesh);
   }
@@ -60,7 +65,9 @@ export class Effects {
         v,
         life: max,
         max,
-        size: 0.08 + Math.random() * 0.1,
+        size: 0.08 + Math.random() * 0.12,
+        axis: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
+        spin: 4 + Math.random() * 10,
       });
       this.mesh.setColorAt(this.particles.length - 1, this.c.setHex(color).offsetHSL(0, 0, (Math.random() - 0.5) * 0.12));
     }
@@ -91,8 +98,8 @@ export class Effects {
       done: () => {
         this.group.remove(shell);
         shell.geometry.dispose();
-        this.burst(base, color, 16, 3.2);
         done();
+        this.crumble(cell, color);
       },
       cancel: () => {
         this.group.remove(shell);
@@ -130,6 +137,64 @@ export class Effects {
         onCancel();
       },
     });
+  }
+
+  /**
+   * A block that just landed in the world settles in: a slightly larger copy squashes down
+   * onto it and springs back, with a puff of dust at its foot. Purely visual (the voxel is
+   * already there underneath).
+   */
+  settle(cell: Vec3i, color: number, seconds = 0.22): void {
+    const cube = this.cube(color);
+    const x = cell[0] + 0.5, z = cell[2] + 0.5;
+    this.group.add(cube);
+    const step = (k: number) => {
+      // Drops in squashed and wide, then a damped wobble back to its true size (anchored at the base).
+      const w = Math.exp(-5 * k) * Math.cos(k * 11);
+      const sy = 1.02 - 0.3 * w, sxz = 1.02 + 0.18 * w;
+      cube.scale.set(sxz, sy, sxz);
+      cube.position.set(x, cell[1] + sy / 2 - 0.01 + (1 - k) * (1 - k) * 0.35, z);
+    };
+    step(0);
+    this.tasks.push({
+      t: 0,
+      dur: seconds,
+      tick: step,
+      done: () => this.drop(cube),
+      cancel: () => this.drop(cube),
+    });
+    this.burst(new THREE.Vector3(x, cell[1] + 0.05, z), 0xf4efe6, 5, 1.2);
+  }
+
+  /** A block that just left the world shrinks away, tumbling, and breaks into chunky bits. */
+  crumble(cell: Vec3i, color: number, seconds = 0.18): void {
+    const cube = this.cube(color);
+    const base = new THREE.Vector3(cell[0] + 0.5, cell[1] + 0.5, cell[2] + 0.5);
+    cube.position.copy(base);
+    this.group.add(cube);
+    const axis = new THREE.Vector3(Math.random() - 0.5, 0.4, Math.random() - 0.5).normalize();
+    this.tasks.push({
+      t: 0,
+      dur: seconds,
+      tick: (k) => {
+        cube.scale.setScalar(Math.max(0.01, 1 - k * k));
+        cube.quaternion.setFromAxisAngle(axis, k * 0.9);
+      },
+      done: () => this.drop(cube),
+      cancel: () => this.drop(cube),
+    });
+    this.burst(base, color, 14, 3);
+  }
+
+  private cube(color: number): THREE.Mesh {
+    const cube = new THREE.Mesh(this.unitBox, new THREE.MeshStandardMaterial({ color, roughness: 0.9 }));
+    cube.castShadow = true;
+    return cube;
+  }
+
+  private drop(cube: THREE.Mesh): void {
+    this.group.remove(cube);
+    (cube.material as THREE.Material).dispose();
   }
 
   /** Stops every drill / pop in progress without applying it. */
@@ -184,6 +249,7 @@ export class Effects {
       if (p.life <= 0) continue;
       p.v.y -= 9 * dt;
       p.p.addScaledVector(p.v, dt);
+      this.spinQ.setFromAxisAngle(p.axis, (p.max - p.life) * p.spin);
       if (n !== i) {
         ps[n] = p;
         this.mesh.getColorAt(i, this.c);
@@ -191,7 +257,7 @@ export class Effects {
       }
       const k = p.life / p.max;
       this.s.setScalar(p.size * Math.min(1, k * 2.5));
-      this.m.compose(p.p, this.q, this.s);
+      this.m.compose(p.p, this.spinQ, this.s);
       this.mesh.setMatrixAt(n, this.m);
       n++;
     }

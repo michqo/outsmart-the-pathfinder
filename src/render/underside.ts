@@ -4,14 +4,6 @@ import { Mat } from '../world/materials';
 import { fbm, valueNoise } from '../world/noise';
 import type { World } from '../world/world';
 
-export interface RockMaps {
-  map: THREE.Texture;
-  normalMap: THREE.Texture;
-  armMap: THREE.Texture;
-  /** Shared with the terrain material, so the rock blends towards the same stone colour. */
-  uniforms?: { uRealism: { value: number }; uStone: { value: THREE.Color } };
-}
-
 const MAX_DEPTH = 17;
 
 /**
@@ -20,9 +12,9 @@ const MAX_DEPTH = 17;
  * A grid over the voxel corners: each corner hangs from the island's real bottom there,
  * by a depth that grows with distance from the footprint's edge (so the rim meets the
  * island exactly and the middle tapers to a deep, rounded point). Noise adds lumps and a
- * few stalactite drips. ~8k triangles; with `rock` maps it gets the rock scan.
+ * few stalactite drips. ~8k triangles, flat-shaded.
  */
-export function buildUnderside(world: World, palette: Palette, rock: RockMaps | null = null, seed = 3): THREE.Mesh {
+export function buildUnderside(world: World, palette: Palette, seed = 3): THREE.Mesh {
   const { sx: SX, sy: SY, sz: SZ } = world;
   // Lowest solid voxel per column (-1 = empty column).
   const bottom = new Int16Array(SX * SZ).fill(-1);
@@ -80,8 +72,8 @@ export function buildUnderside(world: World, palette: Palette, rock: RockMaps | 
   // Vertex positions: hang each corner below the island bottom.
   const pos = new Float32Array(W * D * 3);
   const colors = new Float32Array(W * D * 3);
-  const cTop = new THREE.Color(rock ? 0xffffff : palette.rock.top);
-  const cTip = new THREE.Color(rock ? 0x6f6a68 : palette.rock.tip);
+  const cTop = new THREE.Color(palette.rock.top);
+  const cTip = new THREE.Color(palette.rock.tip);
   const tmp = new THREE.Color();
   for (let z = 0; z < D; z++)
     for (let x = 0; x < W; x++) {
@@ -116,64 +108,9 @@ export function buildUnderside(world: World, palette: Palette, rock: RockMaps | 
   geo.setIndex(idx);
   geo.computeVertexNormals();
 
-  const material = rock
-    ? triplanarRock(rock)
-    : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: true });
+  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: true });
   const mesh = new THREE.Mesh(geo, material);
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   return mesh;
-}
-
-/**
- * Rock with world-space triplanar mapping: three projections blended by the surface
- * direction, so the texture never smears along steep or diagonal faces (no UVs needed).
- */
-function triplanarRock(rock: RockMaps): THREE.MeshStandardMaterial {
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, {
-      uRealism: rock.uniforms?.uRealism ?? { value: 1 },
-      uStone: rock.uniforms?.uStone ?? { value: new THREE.Color(1, 1, 1) },
-      tRockAlb: { value: rock.map },
-      tRockNor: { value: rock.normalMap },
-      tRockArm: { value: rock.armMap },
-    });
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vTp;\nvarying vec3 vTpN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTp = transformed * 0.25;\nvTpN = objectNormal;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-        uniform sampler2D tRockAlb, tRockNor, tRockArm;
-        uniform float uRealism;
-        uniform vec3 uStone;
-        varying vec3 vTp;
-        varying vec3 vTpN;`,
-      )
-      .replace(
-        '#include <map_fragment>',
-        `vec3 tN = normalize(vTpN);
-        vec3 tw = pow(abs(tN), vec3(4.0));
-        tw /= tw.x + tw.y + tw.z;
-        vec2 uvX = vTp.zy, uvY = vTp.xz, uvZ = vTp.xy;
-        vec3 rAlb = texture2D(tRockAlb, uvX).rgb * tw.x + texture2D(tRockAlb, uvY).rgb * tw.y + texture2D(tRockAlb, uvZ).rgb * tw.z;
-        vec3 rArm = texture2D(tRockArm, uvX).rgb * tw.x + texture2D(tRockArm, uvY).rgb * tw.y + texture2D(tRockArm, uvZ).rgb * tw.z;
-        // Whiteout-style blend of the three tangent-space normals into world space.
-        vec3 nx = texture2D(tRockNor, uvX).xyz * 2.0 - 1.0;
-        vec3 ny = texture2D(tRockNor, uvY).xyz * 2.0 - 1.0;
-        vec3 nz = texture2D(tRockNor, uvZ).xyz * 2.0 - 1.0;
-        vec3 rNW = normalize(
-          vec3(0.0, nx.y, nx.x) * tw.x + vec3(ny.x, 0.0, ny.y) * tw.y + vec3(nz.x, nz.y, 0.0) * tw.z + tN);
-        // Same blend as the terrain's stone: palette hue with the scan's luminance detail.
-        float rL = dot(rAlb, vec3(0.3, 0.59, 0.11));
-        rAlb = mix(mix(uStone, uStone * (0.55 + 1.1 * rL), 0.6), rAlb, uRealism);
-        diffuseColor.rgb *= rAlb * mix(1.0, rArm.r, 0.8);`,
-      )
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = rArm.g;')
-      .replace('#include <normal_fragment_maps>', 'normal = normalize((viewMatrix * vec4(rNW, 0.0)).xyz);');
-  };
-  material.customProgramCacheKey = () => 'underside-triplanar';
-  return material;
 }

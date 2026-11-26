@@ -28,21 +28,17 @@ import { buildUnderside } from './render/underside';
 import { Hotbar } from './ui/hotbar';
 import { Hud } from './ui/hud';
 import { createPanel, type Settings, type Stats } from './ui/panel';
-import { loadAssets, type Assets } from './render/assets';
 import { FollowCam } from './render/followCam';
 import { LoadingScreen } from './ui/loading';
 import { ignoreGameShortcut } from './ui/modal';
 import { CharacterPicker, storedCharacter } from './ui/characterPicker';
 import { renderThumbnails } from './render/characters';
 import { BotView } from './render/bot';
-import { createTerrainMaterial, createWaterMaterial, VoxelTexture, type TerrainMaterial, type WaterMaterial } from './render/terrain';
 import { Mat } from './world/materials';
 import { generateTestIsland } from './world/testIsland';
 import { sameDims, World, type Dims } from './world/world';
 
 const settings: Settings = {
-  envIntensity: 0.45,
-  realism: 0.5,
   clouds: 0.45,
   wind: 1,
   palette: 'meadow',
@@ -65,6 +61,7 @@ const chunks = new ChunkRenderer(world);
 /** The rest of the archipelago, drawn around the current island. */
 const skyIslands = new SkyIslands();
 const sky = new Sky();
+chunks.clouds = sky.cloud;
 stage.island.add(chunks.group);
 /** Blossom, fireflies, sand, snow and embers over the biomes. */
 const drift = new Drift();
@@ -105,7 +102,7 @@ function rebuildUnderside(): void {
     underside.geometry.dispose();
     (underside.material as THREE.Material).dispose();
   }
-  underside = buildUnderside(world, palette(), realistic() ? { ...assets!.rock, uniforms: terrain!.uniforms } : null);
+  underside = buildUnderside(world, palette());
   stage.island.add(underside);
   stats.undersideMs = performance.now() - t0;
 }
@@ -164,6 +161,11 @@ editor.onEdit = (cells) => {
   if (cells.length) {
     const now = world.data[cells[0]];
     sfx.play(now === Mat.Air ? 'remove' : 'place', now === Mat.Air ? history.lastBefore : now);
+    for (const c of cells.slice(0, 16)) {
+      const m = world.data[c];
+      if (m === Mat.Air) bot.effects.crumble(world.coords(c), colorOf(history.lastBefore as Mat));
+      else bot.effects.settle(world.coords(c), colorOf(m as Mat));
+    }
   }
   scheduleUnderside();
   bot.onWorldEdit(cells);
@@ -175,13 +177,6 @@ syncHotbar();
 
 // ---------------------------------------------------------------- look
 
-/** Textures and sky for the full look; null until they've loaded (simple flat colours show meanwhile). */
-let assets: Assets | null = null;
-let terrain: TerrainMaterial | null = null;
-let water: WaterMaterial | null = null;
-const voxels = new VoxelTexture(world);
-chunks.onRebuilt = () => voxels.touch();
-const realistic = () => assets !== null;
 /**
  * The daytime sun: high and off to the left of the default view, so shadows fall across the
  * island where you can see them rather than straight behind each block.
@@ -201,46 +196,23 @@ function timedSun(): THREE.Vector3 {
 
 function applyPalette(): void {
   const p = palette();
-  const real = realistic();
   const tl = TIME_LIGHT[timeOfDay];
-  const timed = timedSun();
+  const d = timedSun();
+  d.y = Math.max(d.y, 0.22);
+  d.normalize();
   sky.setTime(tl);
-  chunks.setRealistic(real ? { terrain: terrain!.material, water: water!.material } : null);
-  chunks.setPalette(p, settings.grassStyle);
   sky.setPalette(p);
-  sky.setReal(real ? (assets!.env as THREE.DataTexture) : null, 1, real ? timed : undefined);
+  sky.setSunDir(d);
+  chunks.setPalette(p, settings.grassStyle);
   skyIslands.setPalette(p, settings.grassStyle);
   skyIslands.setHaze(sky.hazeColor());
-  stage.scene.environment = real ? assets!.env : null;
-  stage.scene.environmentIntensity = settings.envIntensity * tl.ambient;
   stage.renderer.toneMappingExposure = settings.exposure * tl.exposure;
-  stage.hemi.visible = !real;
-  if (real) {
-    // The sky image only fills in ambient light, kept low so the sun's shadows read.
-    const d = timed.clone();
-    d.y = Math.max(d.y, 0.22);
-    stage.sun.position.copy(stage.sun.target.position).addScaledVector(d.normalize(), 85);
-    stage.sun.color.setHex(0xfff1df).multiply(new THREE.Color(tl.sunColor));
-    stage.sun.intensity = 4 * tl.sun;
-    terrain!.uniforms.uPlaced.value.setHex(p.blocks.placed.top);
-    terrain!.uniforms.uCrystal.value.setHex(p.blocks.crystal.side);
-    const u = terrain!.uniforms;
-    u.uRealism.value = settings.realism;
-    u.uGrassTop.value.setHex(p.blocks.grass.top);
-    u.uGrassSide.value.setHex(p.blocks.grass.side);
-    u.uSoil.value.setHex(p.blocks.soil.side);
-    u.uStone.value.setHex(p.blocks.stone.side);
-    (['sand', 'mud', 'timber', 'leaves', 'magma', 'snow'] as const).forEach((k, i) => u.uExtra.value[i].setHex(k === 'timber' ? blockFaces(p, k).side : blockFaces(p, k).top));
-  } else {
-    const d = timed.clone().setY(Math.max(timed.y, 0.22)).normalize();
-    stage.sun.position.copy(stage.sun.target.position).addScaledVector(d, 85);
-    stage.sun.color.setHex(p.sun.color).multiply(new THREE.Color(tl.sunColor));
-    stage.sun.intensity = p.sun.intensity * tl.sun;
-  }
+  stage.sun.position.copy(stage.sun.target.position).addScaledVector(d, 85);
+  stage.sun.color.setHex(p.sun.color).multiply(new THREE.Color(tl.sunColor));
+  stage.sun.intensity = p.sun.intensity * tl.sun;
   stage.hemi.color.setHex(p.hemi.sky);
   stage.hemi.groundColor.setHex(p.hemi.ground);
   stage.hemi.intensity = p.hemi.intensity * tl.ambient;
-  bot.bot.setRealistic(real);
   hotbar.setColors(colorOf);
   applyMeshOptions();
   rebuildUnderside();
@@ -255,19 +227,6 @@ function applyMeshOptions(): void {
 
 applyPalette();
 
-function upgradeTerrain(): void {
-  void loadAssets().then((a) => {
-    terrain = createTerrainMaterial(a, voxels, sky.cloud, stage.island.position, chunks.tint);
-    water = createWaterMaterial();
-    assets = a;
-    applyPalette();
-  }).catch((err) => {
-    console.error('Terrain textures failed to load; keeping the simple look.', err);
-    assets = null;
-    applyPalette();
-  });
-}
-
 /** Runs once the loading screen is gone: the character picker (shown on a first visit). */
 function onLoaded(): void {
   const picker = new CharacterPicker(
@@ -279,7 +238,6 @@ function onLoaded(): void {
     (onEach) =>
       renderThumbnails(() => {
         const v = new BotView('capsule');
-        v.setRealistic(realistic());
         v.update(0, 0);
         return v.root;
       }, onEach),
@@ -297,12 +255,10 @@ const corner = new Corner(sfx.muted, {
 let wasBusy = false;
 
 createPanel(settings, stats, {
-  onEnvIntensity: applyPalette,
   onClouds: () => {
     sky.cloud.uCover.value = settings.clouds;
     sky.cloud.uWind.value.set(4.5, 1.6).multiplyScalar(settings.wind);
   },
-  onRealism: () => terrain && (terrain.uniforms.uRealism.value = settings.realism),
   onPalette: applyPalette,
   onMeshOptions: applyMeshOptions,
   onJitter: () => (chunks.jitter.value = settings.jitter),
@@ -807,7 +763,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Dev-only handle for poking at the scene from the console.
-if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, sky, settings, editor, bot, applyPalette, getAssets: () => assets, follow, history, arch: { goToIsland, islandResult, here: () => archHere, seed: () => archSeed } } });
+if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, sky, settings, editor, bot, applyPalette, follow, history, arch: { goToIsland, islandResult, here: () => archHere, seed: () => archSeed } } });
 
 // ---------------------------------------------------------------- loop
 
@@ -849,21 +805,18 @@ stage.renderer.setAnimationLoop((time) => {
   if (busy !== wasBusy) corner.setBusy((wasBusy = busy));
   follow.update(dt);
   sky.update(t);
+  chunks.windTime.value = t * settings.wind;
   updateFlight(dt);
   updateGlide(dt);
   updateLanterns();
   drift.update(t, stage.camera, stage.renderer);
   stage.controls.update();
   skyIslands.update(dt, stage.camera, inArchipelago() && !flight && !busy && !duelActive && zoomedOut());
-  if (water) water.time.value = t;
   stage.renderer.render(stage.scene, stage.camera);
 
   if (firstFrame) {
     firstFrame = false;
-    void loading.done().then(() => {
-      onLoaded();
-      upgradeTerrain();
-    });
+    void loading.done().then(onLoaded);
   }
 
   frames++;

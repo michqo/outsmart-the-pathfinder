@@ -13,6 +13,8 @@ export interface MeshData {
   positions: Float32Array;
   normals: Float32Array;
   colors: Float32Array;
+  /** Per vertex: 1 on leaf faces (canopies sway in the wind), else 0. */
+  sway: Uint8Array;
   indices: Uint32Array;
   quads: number;
 }
@@ -39,6 +41,7 @@ class Builder {
   pos: number[] = [];
   nrm: number[] = [];
   col: number[] = [];
+  sw: number[] = [];
   idx: number[] = [];
   quads = 0;
   build(): MeshData {
@@ -46,6 +49,7 @@ class Builder {
       positions: new Float32Array(this.pos),
       normals: new Float32Array(this.nrm),
       colors: new Float32Array(this.col),
+      sway: new Uint8Array(this.sw),
       indices: new Uint32Array(this.idx),
       quads: this.quads,
     };
@@ -206,6 +210,7 @@ function emit(
     p[v] = v0 + (k >= 2 ? h : 0);
     out.pos.push(p[0], p[1], p[2]);
     out.nrm.push(nrm[0], nrm[1], nrm[2]);
+    out.sw.push(mat === Mat.Leaves ? 1 : 0);
     const f = opts.ao && !waterPass ? opts.aoCurve[ao[k]] : 1;
     if (waterPass) out.col.push(1, 1, 1);
     else {
