@@ -10,6 +10,8 @@ export class EditHistory {
   private redoStack: Action[] = [];
   /** Voxel indices changed by the most recent edit / undo / redo. */
   lastCells: number[] = [];
+  /** The material the most recent edit replaced in its first cell (for sounds). */
+  lastBefore = 0;
   constructor(private limit = 200) {}
 
   /** Runs `fn` as one undoable action. Returns how many voxels changed. */
@@ -22,6 +24,7 @@ export class EditHistory {
       if (world.get(x, y, z) === m) action.push(world.index(x, y, z), before, m);
     });
     this.lastCells = cellsOf(action);
+    this.lastBefore = action.length ? action[1] : 0;
     if (action.length) {
       this.undoStack.push(action);
       if (this.undoStack.length > this.limit) this.undoStack.shift();

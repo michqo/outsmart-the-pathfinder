@@ -196,7 +196,7 @@ export class ScorePanel {
     this.best = best;
     this.dare = dare;
     this.q('.name').textContent = level.name;
-    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : level === HEURISTIC_TRAP ? 'Duel puzzle' : level.tier ? `Tier ${level.tier} · seed ${level.seed}` : level.seed === undefined ? 'Sandbox' : 'Generated';
+    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : level === HEURISTIC_TRAP ? 'Duel puzzle' : level.tier ? `Tier ${level.tier}${level.time && level.time !== 'day' ? ` · ${level.time}` : ''} · seed ${level.seed}` : level.seed === undefined ? 'Sandbox' : 'Generated';
     this.q('.lvhint').textContent = level.hint;
     this.q('.seed-form').hidden = level.kind !== 'riftworks';
     this.q<HTMLInputElement>('#rift-seed').value = level.seed === undefined ? '' : String(level.seed);

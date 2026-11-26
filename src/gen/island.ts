@@ -10,7 +10,7 @@ import { drainage, erode, EROSION } from './hydro';
  * operations (no sin/exp/pow/hypot, whose last bits differ between browsers). Bump
  * GEN_VERSION whenever the output changes, so saved progress and links can tell.
  */
-export const GEN_VERSION = 1;
+export const GEN_VERSION = 2;
 
 export const ISLAND_SIZE = { min: 32, max: 112, phone: 80 } as const;
 const SY = 48;
@@ -19,9 +19,9 @@ const BASE = 14;
 /** Room left above the highest peak for pillars and the bot. */
 const HEADROOM = 9;
 
-export const Biome = { None: 0, Meadow: 1, Highlands: 2, Crystal: 3, Wetlands: 4, Badlands: 5 } as const;
+export const Biome = { None: 0, Meadow: 1, Highlands: 2, Crystal: 3, Wetlands: 4, Badlands: 5, Forest: 6, Snowy: 7, Desert: 8, Volcanic: 9 } as const;
 export type Biome = (typeof Biome)[keyof typeof Biome];
-export const BIOME_NAMES = ['none', 'meadow', 'highlands', 'crystal fields', 'wetlands', 'badlands'] as const;
+export const BIOME_NAMES = ['none', 'meadow', 'highlands', 'crystal fields', 'wetlands', 'badlands', 'forest', 'snowy peaks', 'desert', 'volcanic'] as const;
 /** Gentle colour multipliers per biome (meadow = untinted). */
 export const BIOME_TINT: readonly [number, number, number][] = [
   [1, 1, 1],
@@ -30,6 +30,10 @@ export const BIOME_TINT: readonly [number, number, number][] = [
   [1.0, 0.9, 1.16],
   [0.78, 1.0, 0.8],
   [1.2, 0.95, 0.76],
+  [0.8, 0.96, 0.78],
+  [1, 1, 1],
+  [1.06, 1.0, 0.9],
+  [0.62, 0.56, 0.62],
 ];
 
 /** Which island of which archipelago. `maxSize` caps the footprint (phones). */
@@ -63,12 +67,18 @@ export function islandParams(spec: IslandSpec) {
     relief: 0.55 + r(2) * 0.9,
     temp: (r(3) - 0.5) * 0.6,
     moist: (r(4) - 0.5) * 0.6,
+    /** About one island in five has a volcanic zone. */
+    volcanic: r(5) < 0.22,
   };
 }
 
 /** A small positive integer seed for this island (noise seeds must stay small). */
 export function islandKey(spec: IslandSpec): number {
-  let h = Math.imul(spec.seed >>> 0, 0x9e3779b1) ^ Math.imul(spec.ix | 0, 0x85ebca6b) ^ Math.imul(spec.iz | 0, 0xc2b2ae35);
+  // Chained, not XORed: XORing the multiplied coordinates gave (x, z) and (-x, -z) the
+  // same key (v1 had mirror-image twin islands).
+  let h = Math.imul((spec.seed >>> 0) ^ 0x9e3779b1, 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13) ^ (spec.ix | 0), 0xc2b2ae35);
+  h = Math.imul(h ^ (h >>> 16) ^ Math.imul(spec.iz | 0, 0x27d4eb2f), 0x165667b1);
   h ^= GEN_VERSION * 0x27d4eb2f;
   h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
   h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
@@ -135,19 +145,26 @@ export function generateIsland(spec: IslandSpec): Island {
       const elev = (h[i] - BASE) / 24;
       const t = 0.5 + p.temp + (fbm(x * 0.025, z * 0.025, sub(7), 3) - 0.5) * 0.9 - elev * 0.55;
       const m = 0.5 + p.moist + (fbm(x * 0.025 + 50, z * 0.025, sub(8), 3) - 0.5) * 0.9 - elev * 0.3;
+      const hot = p.volcanic && fbm(x * 0.03, z * 0.03, sub(17), 2) + elev * 0.25 > 0.68;
       biome[i] =
-        t < 0.12 || elev > 0.85 ? Biome.Highlands
+        hot ? Biome.Volcanic
+        : t < 0.04 || elev > 1.0 ? Biome.Snowy
+        : t < 0.14 || elev > 0.82 ? Biome.Highlands
         : m > 0.66 ? Biome.Wetlands
-        : t > 0.62 && m < 0.44 ? Biome.Badlands
-        : m < 0.38 && t < 0.52 ? Biome.Crystal
+        : t > 0.58 && m < 0.32 ? Biome.Desert
+        : t > 0.56 && m < 0.5 ? Biome.Badlands
+        : m > 0.5 && t > 0.3 ? Biome.Forest
+        : m < 0.34 && t < 0.5 ? Biome.Crystal
         : Biome.Meadow;
       // Badlands: flat-topped mesas in 3-voxel steps (cliffs the bot must dig or pillar).
       if (biome[i] === Biome.Badlands) h[i] = BASE + Math.floor((h[i] - BASE) / 3) * 3 + 0.25;
+      // Desert: rolling dunes.
+      if (biome[i] === Biome.Desert) h[i] += (fbm(x * 0.07, z * 0.11, sub(18), 2) - 0.5) * 4;
     }
 
   // 5. Water: pits fill into lakes; heavy flow carves rivers. Wetlands catch more rain.
   const rain = new Float32Array(N);
-  for (let i = 0; i < N; i++) rain[i] = biome[i] === Biome.Wetlands ? 2 : biome[i] === Biome.Badlands ? 0.5 : 1;
+  for (let i = 0; i < N; i++) rain[i] = biome[i] === Biome.Wetlands ? 2 : biome[i] === Biome.Badlands ? 0.5 : biome[i] === Biome.Desert ? 0.3 : 1;
   const { filled, flow } = drainage(h, land, W, rain);
   const ground = new Int16Array(N).fill(-1);
   const water = new Int16Array(N).fill(-1); // highest water voxel per column
@@ -183,12 +200,12 @@ export function generateIsland(spec: IslandSpec): Island {
     water[i] = cap > ground[i] ? cap : -1;
   }
   for (let i = 0; i < N; i++) river += isRiver[i] && water[i] >= 0 ? 1 : 0;
-  // Wetland ponds: small dips in flat ground, filled to the brim.
+  // Wetland ponds (and rarer desert oases): small dips in flat ground, filled to the brim.
   for (let z = 1; z < W - 1; z++)
     for (let x = 1; x < W - 1; x++) {
       const i = x + z * W;
-      if (biome[i] !== Biome.Wetlands || water[i] >= 0) continue;
-      if (fbm(x * 0.12, z * 0.12, sub(9), 2) < 0.6) continue;
+      const pond = biome[i] === Biome.Wetlands ? 0.6 : biome[i] === Biome.Desert ? 0.72 : 2;
+      if (water[i] >= 0 || fbm(x * 0.12, z * 0.12, sub(9), 2) < pond) continue;
       const g = ground[i];
       if ([1, -1, W, -W].some((d) => !land[i + d] || Math.max(ground[i + d], water[i + d]) < g)) continue;
       ground[i] = g - 1;
@@ -200,7 +217,7 @@ export function generateIsland(spec: IslandSpec): Island {
   const dims: Dims = { sx: W, sy: SY, sz: W };
   const data = new Uint8Array(W * SY * W);
   const put = (x: number, y: number, z: number, m: Mat) => (data[x + z * W + y * W * W] = m);
-  const biomeCount = [0, 0, 0, 0, 0, 0];
+  const biomeCount = new Array<number>(BIOME_NAMES.length).fill(0);
   for (let z = 0; z < W; z++)
     for (let x = 0; x < W; x++) {
       const i = x + z * W;
@@ -212,7 +229,17 @@ export function generateIsland(spec: IslandSpec): Island {
       const thick = 3 + Math.floor(Math.min(1, mask[i] * 1.6) * 16 + fbm(x * 0.1, z * 0.1, sub(10), 2) * 5);
       const bottom = Math.max(1, g - thick);
       for (let y = bottom; y <= g; y++) put(x, y, z, layer(b, g - y, y, wet, x, z, sub(11)));
-      if (wet) for (let y = g + 1; y <= water[i]; y++) put(x, y, z, Mat.Water);
+      if (!wet) continue;
+      if (b === Biome.Volcanic) {
+        // Lava where water would be, with stepping stones so channels can be crossed.
+        const ford = isRiver[i] && hash2(x, z, sub(19)) < 0.22;
+        for (let y = g + 1; y < water[i]; y++) put(x, y, z, Mat.Stone);
+        put(x, water[i], z, ford ? Mat.Stone : Mat.Magma);
+        continue;
+      }
+      for (let y = g + 1; y <= water[i]; y++) put(x, y, z, Mat.Water);
+      // Snowy lakes freeze over: ice the bot can cross fast.
+      if (b === Biome.Snowy) put(x, water[i], z, Mat.Ice);
     }
 
   // 7. Crystal fields: spires and broken crystal walls (crystal can't be dug).
@@ -227,6 +254,37 @@ export function generateIsland(spec: IslandSpec): Island {
       if (!spire && !band) continue;
       const tall = spire ? 3 + Math.floor(cr() * 4) : 2;
       for (let y = g + 1; y <= Math.min(SY - 3, g + tall); y++) put(x, y, z, Mat.Crystal);
+    }
+
+  // 8. Forests: trees on a jittered 5-voxel grid (timber trunks, leafy canopies the bot
+  // can push through), and volcanic vents.
+  // Canopies stay over land, so nothing hangs past the coast.
+  const empty = (x: number, y: number, z: number) => x >= 0 && z >= 0 && x < W && z < W && land[x + z * W] === 1 && y < SY - 2 && data[x + z * W + y * W * W] === Mat.Air;
+  for (let gz = 0; gz < W; gz += 5)
+    for (let gx = 0; gx < W; gx += 5) {
+      const x = gx + Math.floor(hash2(gx, gz, sub(20)) * 5), z = gz + Math.floor(hash2(gx, gz, sub(21)) * 5);
+      if (x < 3 || z < 3 || x >= W - 3 || z >= W - 3) continue;
+      const i = x + z * W;
+      if (biome[i] !== Biome.Forest || water[i] >= 0 || hash2(gx, gz, sub(22)) > 0.75) continue;
+      const g = ground[i];
+      const tall = 3 + Math.floor(hash2(gx, gz, sub(23)) * 3);
+      if (g + tall + 2 >= SY - 3) continue;
+      for (let y = g + 1; y <= g + tall; y++) put(x, y, z, Mat.Timber);
+      const top = g + tall;
+      for (let dy = -1; dy <= 2; dy++) {
+        const r = dy === 2 ? 1 : 2;
+        for (let dz = -r; dz <= r; dz++)
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) === r && Math.abs(dz) === r) continue; // round the corners
+            if (empty(x + dx, top + dy, z + dz)) put(x + dx, top + dy, z + dz, Mat.Leaves);
+          }
+      }
+    }
+  for (let z = 3; z < W - 3; z++)
+    for (let x = 3; x < W - 3; x++) {
+      const i = x + z * W;
+      if (biome[i] !== Biome.Volcanic || water[i] >= 0 || hash2(x, z, sub(24)) > 0.012) continue;
+      put(x, ground[i], z, Mat.Magma);
     }
 
   return {
@@ -253,7 +311,17 @@ function layer(b: number, depth: number, y: number, underwater: boolean, x: numb
       if (depth === 0) return Mat.Soil;
       return (y >> 1) % 2 ? Mat.Soil : Mat.Stone;
     case Biome.Wetlands:
+      // Boggy ground in patches.
+      if (depth === 0) return hash2(x >> 1, z >> 1, seed + 1) < 0.3 ? Mat.Mud : Mat.Grass;
+      return depth <= 3 ? Mat.Soil : Mat.Stone;
+    case Biome.Forest:
       return depth === 0 ? Mat.Grass : depth <= 3 ? Mat.Soil : Mat.Stone;
+    case Biome.Snowy:
+      return depth === 0 ? Mat.Snow : Mat.Stone;
+    case Biome.Desert:
+      return depth <= 3 ? Mat.Sand : (y >> 1) % 3 ? Mat.Sand : Mat.Stone;
+    case Biome.Volcanic:
+      return Mat.Stone;
     default:
       return depth === 0 ? Mat.Grass : depth <= 2 ? Mat.Soil : Mat.Stone;
   }

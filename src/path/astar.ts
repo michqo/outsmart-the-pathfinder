@@ -1,6 +1,6 @@
 import type { Dims } from '../world/world';
 import { MinHeap } from './heap';
-import { expandMoves, heuristic, MoveKind, type Grid, type MoveSink } from './moves';
+import { expandMoves, floorFactor, heuristic, MoveKind, type Grid, type MoveSink } from './moves';
 
 /** High bit in an event marks "closed"; otherwise the cell was just opened. Events carry cell ids. */
 export const CLOSED_FLAG = 0x80000000;
@@ -100,6 +100,8 @@ export class AStar {
   status: SearchStatus = 'running';
   /** States expanded (a cell can be expanded once per inventory count). */
   expanded = 0;
+  /** Heuristic scale for the cheapest floor on this course (ice makes it < 1). */
+  private floor: number;
 
   constructor(
     private grid: Grid & Dims,
@@ -109,6 +111,7 @@ export class AStar {
     blocks = 0,
     private pruneDominated = false,
   ) {
+    this.floor = floorFactor((grid as { data?: Uint8Array }).data);
     this.sx = grid.sx;
     this.sy = grid.sy;
     this.sz = grid.sz;
@@ -180,7 +183,7 @@ export class AStar {
 
   private estimate(x: number, y: number, z: number): number {
     if (this.weight === 0) return 0;
-    const h = heuristic(x, y, z, ...this.goal);
+    const h = heuristic(x, y, z, this.goal[0], this.goal[1], this.goal[2], this.floor);
     return this.weight * (this.pruneDominated ? Math.round(h * 100) : h);
   }
 

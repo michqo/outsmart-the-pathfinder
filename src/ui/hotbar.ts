@@ -11,6 +11,13 @@ const NAMES: Partial<Record<Mat, string>> = {
   [Mat.Stone]: 'Slate',
   [Mat.Crystal]: 'Crystal',
   [Mat.Water]: 'Water',
+  [Mat.Sand]: 'Sand',
+  [Mat.Ice]: 'Frost',
+  [Mat.Mud]: 'Bog',
+  [Mat.Timber]: 'Timber',
+  [Mat.Leaves]: 'Canopy',
+  [Mat.Magma]: 'Ember',
+  [Mat.Snow]: 'Snow',
 };
 
 const CSS = /* css */ `
@@ -48,10 +55,11 @@ const CSS = /* css */ `
 .hb-hint b { color: #3b3355; font-weight: 600; }
 @media (max-width: 1180px) { .hb-hint { display: none; } }
 @media (max-width: 720px), (pointer: coarse) {
-  .hb { bottom: 10px; gap: 4px; }
+  .hb { bottom: 10px; gap: 4px; max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; }
   .hb.chips { padding: 5px; }
-  .hb.chips .mat { padding: 7px; }
-  .hb.chips .mat .sw { width: 24px; height: 24px; }
+  .hb.chips .mat { padding: 6px; flex: none; }
+  .hb.chips .mat .sw { width: 22px; height: 22px; }
+  .hb .tool { flex: none; }
   .hb .mat .label, .hb .mat .key { display: none; }
   .hb.pebbles .mat { width: 38px; height: 38px; }
   .hb .tool { width: 38px; height: 38px; }
@@ -108,7 +116,7 @@ export class Hotbar {
     hint.className = 'hb-hint';
     hint.innerHTML =
       '<b>Click</b> place · <b>Right / two-finger click</b> remove · <b>Shift-drag</b> fill (<b>+⌥</b> wall)<br>' +
-      '<b>Drag</b> orbit · <b>1–5</b> material · <b>E / R</b> place / remove · <b>F</b> or <b>⌥-click</b> focus · <b>⌘Z</b> undo';
+      '<b>Drag</b> orbit · <b>1–8</b> material · <b>E / R</b> place / remove · <b>F</b> or <b>⌥-click</b> focus · <b>⌘Z</b> undo';
     document.body.appendChild(hint);
   }
 

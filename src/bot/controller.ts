@@ -38,7 +38,7 @@ export interface ControllerOptions {
   /** Nodes include replans. Edits during the run make a challenge result practice only. */
   onRunEnd?(arrived: boolean, nodes: number, edited: boolean): void;
   /** Something worth a sound happened. */
-  onSound?(s: Sound): void;
+  onSound?(s: Sound, mat?: number): void;
 }
 
 /**
@@ -118,6 +118,11 @@ export class BotController {
           return;
         }
         if (k !== MoveKind.Dig && k !== MoveKind.DigDown) this.bot.setMood('walking');
+        if (this.result && i < this.result.nodes.length) {
+          const [x, y, z] = this.world.coords(this.result.nodes[i]);
+          const feet = this.world.get(x, y, z);
+          this.opts.onSound?.('step', feet === Mat.Water ? Mat.Water : this.world.get(x, y - 1, z));
+        }
       },
       onLand: (blocks) => this.bot.land(blocks >= 3),
       onArrive: () => this.arrive(),
@@ -409,7 +414,7 @@ export class BotController {
       const m = this.world.get(c[0], c[1], c[2]);
       this.effects.drill(c, this.opts.colorOf(m), seconds, () => {
         this.setBlock(c, Mat.Air);
-        this.opts.onSound?.('dig');
+        this.opts.onSound?.('dig', m);
         this.dug++;
         this.updateInventoryHud();
       });

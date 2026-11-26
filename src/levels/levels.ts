@@ -1,3 +1,4 @@
+import type { TimeOfDay } from '../render/timeOfDay';
 import type { Vec3i } from '../path/protocol';
 import { Mat } from '../world/materials';
 import { fbm } from '../world/noise';
@@ -38,6 +39,8 @@ export interface Level {
   spec?: IslandSpec;
   /** Generated islands: per-column biome, for the terrain tint. */
   biome?: Uint8Array;
+  /** Time of day the course is lit for (default day). */
+  time?: TimeOfDay;
 }
 
 const TOP = 8;

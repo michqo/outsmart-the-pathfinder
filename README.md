@@ -2,7 +2,7 @@
 
 Build a course on a floating voxel island, then press **Space** and watch a little bot plan its route with A\*. Every cell it considers lights up in 3D. Your goal is to make it **think as hard as possible**: the score is the number of nodes it expands, and a run only counts if it still reaches the flag.
 
-The bot isn't helpless. It can dig (slate is slow, crystal can't be dug), swim, and spend its blocks to bridge gaps and climb. Edit the course while it walks and it has to replan live. In challenges, editing after pressing Run makes it a practice run: it won't earn stars or set a best.
+The bot isn't helpless. It can dig (slate and timber are slow, crystal can't be dug), swim, push through canopy leaves, and spend its blocks to bridge gaps and climb. Floors matter: frost is quick to cross, bog and snow slow it down, and ember (magma) is never stepped on. Edit the course while it walks and it has to replan live. In challenges, editing after pressing Run makes it a practice run: it won't earn stars or set a best.
 
 - **An archipelago of generated islands:** every island is a challenge with an edit budget and ★★★ targets. Zoom out to see the neighbouring islands floating in the haze; earn a ★ to grow bridges to them, then tap one to fly there. Difficulty rises with each ring away from home. Each day brings a new archipelago (the same for everyone), or enter a seed or choose **Random** in **Levels**.
 - **Share links:** an island plus your best (a short link), or a whole sandbox course packed into the URL, so you can dare a friend
@@ -10,7 +10,7 @@ The bot isn't helpless. It can dig (slate is slow, crystal can't be dug), swim, 
 - **Weighted A\*** slider in sandboxes, to see how greed trades nodes for path quality
 - **Algorithm Duel:** compare A* against Dijkstra, Weighted A*, or Pareto A*. The table shows states expanded, planned cost, and active worker time. The visual traces play at the same event rate, so a shorter trace finishes sooner; playback is not a compute benchmark.
 - **Riftworks:** open **Levels → Riftworks** for a seeded, 36-room maze with rising terraces, flood pools, diggable gates, and bridge shortcuts. Enter a seed to reproduce a layout or choose **Random** for another. **Heuristic Trap** is a separate six-edit puzzle.
-- **How islands are made:** eroded hills with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands). Each island is surveyed the first time you land (up to a few seconds) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. A seed gives the same islands and stars on every device; touch devices get smaller islands.
+- **How islands are made:** eroded hills with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands, forest, snowy peaks, desert, volcanic). Each island has its own time of day (dawn, day, dusk or night) and its own ambient sounds. Each island is surveyed the first time you land (up to a few seconds) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. A seed gives the same islands and stars on every device; touch devices get smaller islands.
 - Works with mouse, trackpad and touch
 - Requires WebGL 2. The island is playable with simple graphics while the detailed textures load in the background.
 
@@ -19,7 +19,7 @@ The bot isn't helpless. It can dig (slate is slow, crystal can't be dug), swim, 
 | | Desktop | Touch |
 |---|---|---|
 | Place / remove | Click / right-click (E, R switch tools) | Tap; − / + buttons switch tools |
-| Material | 1–5 | Tap a swatch |
+| Material | 1–8 | Tap a swatch |
 | Fill a box | Shift + drag (⌥ for a wall) | – |
 | Camera | Drag, scroll | Drag, pinch |
 | Run | Space or ▶ Run | ▶ Run |

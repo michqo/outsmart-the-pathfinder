@@ -18,7 +18,7 @@ import { World } from '../world/world';
  * Deterministic: a fixed amount of work (not a time box), so every device gets the same
  * stars. Bump TUNE_VERSION when the result changes.
  */
-export const TUNE_VERSION = 1;
+export const TUNE_VERSION = 2;
 
 export interface TierRules {
   budget: number;
@@ -193,7 +193,8 @@ function climb(
   w.data.set(island.data);
   let best = untouched;
   let route = solve(w, start, goal, rules.blocks)!.path;
-  const mats = [Mat.Soil, Mat.Stone, Mat.Crystal, Mat.Water];
+  // What the player's hotbar offers (no ice: see HOTBAR_MATS).
+  const mats = [Mat.Soil, Mat.Stone, Mat.Crystal, Mat.Water, Mat.Sand, Mat.Mud, Mat.Leaves];
   const triesPerRound = 12;
   const edits: number[] = [];
   let used = 0, evals = 0;

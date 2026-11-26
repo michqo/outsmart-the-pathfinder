@@ -309,3 +309,61 @@ describe('AStar', () => {
     expect(a.drainEvents().length).toBe(0);
   });
 });
+
+describe('biome blocks', () => {
+  /** A 12×6×12 world: a floor of `floor` at y=0, everything else air. */
+  const flat = (floor: Mat) => {
+    const w = new World(16, 16, 16);
+    for (let z = 0; z < 12; z++) for (let x = 0; x < 12; x++) w.setRaw(x, 0, z, floor);
+    return w;
+  };
+  const movesFrom = (w: World, at: [number, number, number]) => {
+    const out: { to: string; cost: number; kind: number }[] = [];
+    expandMoves(w, ...at, 0, (x, y, z, cost, kind) => out.push({ to: `${x},${y},${z}`, cost, kind }));
+    return out;
+  };
+
+  it('ice is cheap and mud slow to walk on; diagonals scale too', () => {
+    const ice = movesFrom(flat(Mat.Ice), [5, 1, 5]);
+    expect(ice.find((m) => m.kind === MoveKind.Walk)!.cost).toBeCloseTo(0.6);
+    expect(ice.find((m) => m.kind === MoveKind.Diagonal)!.cost).toBeCloseTo(COST.diagonal * 0.6);
+    expect(movesFrom(flat(Mat.Mud), [5, 1, 5]).find((m) => m.kind === MoveKind.Walk)!.cost).toBe(2);
+  });
+
+  it('magma is never stood on, dug or dropped onto', () => {
+    const w = flat(Mat.Grass);
+    w.setRaw(6, 0, 5, Mat.Magma);
+    expect(canStand(w, 6, 1, 5)).toBe(false);
+    w.setRaw(6, 1, 5, Mat.Magma);
+    expect(movesFrom(w, [5, 1, 5]).some((m) => m.to.startsWith('6,') && m.to.endsWith(',5'))).toBe(false);
+    expect(HARDNESS[Mat.Magma]).toBe(0);
+  });
+
+  it('leaves are pushed through for a little extra, and are no floor', () => {
+    const w = flat(Mat.Grass);
+    w.setRaw(6, 1, 5, Mat.Leaves);
+    w.setRaw(6, 2, 5, Mat.Leaves);
+    const walk = movesFrom(w, [5, 1, 5]).find((m) => m.to === '6,1,5')!;
+    expect(walk.kind).toBe(MoveKind.Walk);
+    expect(walk.cost).toBeCloseTo(1.5);
+    // Standing on a canopy: no.
+    expect(canStand(w, 6, 3, 5)).toBe(false);
+  });
+
+  it('sand digs cheaply and timber slowly', () => {
+    expect(HARDNESS[Mat.Sand]).toBeLessThan(HARDNESS[Mat.Soil]);
+    expect(HARDNESS[Mat.Timber]).toBeGreaterThan(HARDNESS[Mat.Soil]);
+  });
+
+  it('A* stays optimal on ice (same cost as Dijkstra) but expands more than on grass', () => {
+    const run = (floor: Mat, weight: number) => {
+      const w = flat(floor);
+      for (let z = 2; z < 10; z++) w.setRaw(6, 1, z, Mat.Crystal), w.setRaw(6, 2, z, Mat.Crystal);
+      const a = new AStar(w, [2, 1, 6], [10, 1, 6], weight, 0);
+      while (a.step(1000) === 'running');
+      return { cost: a.path()!.cost, expanded: a.expanded };
+    };
+    expect(run(Mat.Ice, 1).cost).toBeCloseTo(run(Mat.Ice, 0).cost);
+    expect(run(Mat.Ice, 1).expanded).toBeGreaterThan(run(Mat.Grass, 1).expanded);
+  });
+});

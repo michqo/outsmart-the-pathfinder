@@ -19,7 +19,7 @@ describe('run-length encoding', () => {
   });
 
   it('rejects bad materials and wrong lengths', () => {
-    expect(() => rleDecode(Uint8Array.from([5, 9]), 5)).toThrow(/material/);
+    expect(() => rleDecode(Uint8Array.from([5, 14]), 5)).toThrow(/material/); // 14 = past the last material
     expect(() => rleDecode(Uint8Array.from([3, 1]), 5)).toThrow(/short/);
     expect(() => rleDecode(Uint8Array.from([9, 1]), 5)).toThrow(/long/);
   });

@@ -1,4 +1,4 @@
-import { Mat, OPAQUE } from '../world/materials';
+import { Mat, SOLID } from '../world/materials';
 
 /**
  * The bot's move rules. ONE place for every rule and cost, so they're easy to tune and test.
@@ -6,6 +6,10 @@ import { Mat, OPAQUE } from '../world/materials';
  * The bot is 2 voxels tall: a node (x, y, z) is the cell its feet occupy.
  * A node is either a dry stand (feet + head in air, solid floor) or a swim spot
  * (feet in water, head in air: the bot floats at the surface).
+ *
+ * Materials matter: walking on ice is cheap and on mud slow; sand digs easily and timber
+ * slowly; snow is a little slow underfoot; leaves are pushed through (slowly) and can't be stood on; magma is never entered,
+ * stood on or dug.
  *
  * World-changing moves use the Baritone-style approximation: the search does NOT
  * track the changes it plans. A dig is an expensive move through solid blocks; a
@@ -51,27 +55,51 @@ export const MAX_DROP = 3;
 
 /** Extra cost per block dug. 0 = can't be dug. Indexed by Mat id. */
 export const HARDNESS: readonly number[] = (() => {
-  const h = new Array<number>(8).fill(0);
+  const h = new Array<number>(16).fill(0);
   h[Mat.Grass] = 1;
   h[Mat.Soil] = 1;
   h[Mat.Placed] = 1;
   h[Mat.Stone] = 4;
-  // Crystal is a hard wall; air and water have nothing to dig.
+  h[Mat.Sand] = 0.5;
+  h[Mat.Ice] = 1;
+  h[Mat.Mud] = 1;
+  h[Mat.Timber] = 2;
+  h[Mat.Snow] = 0.5;
+  // Crystal and magma are hard walls; air, water and leaves have nothing to dig.
   return h;
 })();
 
-export const isSolid = (m: number): boolean => OPAQUE[m] === 1;
-export const isDiggable = (m: number): boolean => HARDNESS[m] > 0;
-const isAir = (m: number): boolean => m === Mat.Air;
+/** Walking cost multiplier by the floor you walk onto. Indexed by Mat id. */
+export const FLOOR_COST: readonly number[] = (() => {
+  const f = new Array<number>(16).fill(1);
+  f[Mat.Ice] = 0.6;
+  f[Mat.Mud] = 2;
+  f[Mat.Snow] = 1.3;
+  return f;
+})();
+/** The cheapest floor multiplier (keeps the heuristic admissible when there's ice). */
+export const MIN_FLOOR_COST = Math.min(...FLOOR_COST);
 
-/** Feet and head cells are both air. */
+/** Extra cost for each leaf cell (feet or head) the bot pushes through. */
+export const LEAF_COST = 0.25;
+
+export const isSolid = (m: number): boolean => SOLID[m] === 1;
+/** Something the bot can stand on (magma is too hot). */
+export const isFloor = (m: number): boolean => SOLID[m] === 1 && m !== Mat.Magma;
+export const isDiggable = (m: number): boolean => HARDNESS[m] > 0;
+/** Room for the bot: air, or leaves it can push through. */
+const isOpen = (m: number): boolean => m === Mat.Air || m === Mat.Leaves;
+const isAir = isOpen;
+const leafCost = (feet: number, head: number): number => (feet === Mat.Leaves ? LEAF_COST : 0) + (head === Mat.Leaves ? LEAF_COST : 0);
+
+/** Feet and head cells are both open (air or leaves). */
 export function isClear(g: Grid, x: number, y: number, z: number): boolean {
-  return isAir(g.get(x, y, z)) && isAir(g.get(x, y + 1, z));
+  return isOpen(g.get(x, y, z)) && isOpen(g.get(x, y + 1, z));
 }
 
 /** A dry stand: the bot can stand with its feet in (x, y, z). */
 export function canStand(g: Grid, x: number, y: number, z: number): boolean {
-  return isClear(g, x, y, z) && isSolid(g.get(x, y - 1, z));
+  return isClear(g, x, y, z) && isFloor(g.get(x, y - 1, z));
 }
 
 /** A swim spot: feet in water, head in air. */
@@ -108,9 +136,9 @@ export function expandMoves(g: Grid, x: number, y: number, z: number, blocks: nu
 
     if (isAir(feet) && isAir(head)) {
       const floor = g.get(nx, y - 1, nz);
-      if (isSolid(floor)) {
-        out(nx, y, nz, COST.walk, MoveKind.Walk, 0);
-      } else {
+      if (isFloor(floor)) {
+        out(nx, y, nz, COST.walk * FLOOR_COST[floor] + leafCost(feet, head), MoveKind.Walk, 0);
+      } else if (!isSolid(floor)) {
         // Nothing to stand on: fall to the first floor (or water) within MAX_DROP...
         for (let k = 1; k <= MAX_DROP; k++) {
           const ny = y - k;
@@ -119,22 +147,24 @@ export function expandMoves(g: Grid, x: number, y: number, z: number, blocks: nu
             out(nx, ny, nz, COST.dropBase + COST.dropPerBlock * k, MoveKind.Drop, 0);
             break;
           }
-          if (!isAir(m)) break;
-          if (isSolid(g.get(nx, ny - 1, nz))) {
+          if (!isOpen(m)) break;
+          const land = g.get(nx, ny - 1, nz);
+          if (isSolid(land)) {
+            if (!isFloor(land)) break; // never onto magma
             out(nx, ny, nz, COST.dropBase + COST.dropPerBlock * k, MoveKind.Drop, 0);
             break;
           }
         }
         // ...or bridge: place a block under the next cell and walk onto it.
         // It's placed against the bot's own floor, so it always has a face to attach to.
-        if (!swimming && blocks > 0 && isAir(floor)) out(nx, y, nz, COST.bridge, MoveKind.Bridge, 1);
+        if (!swimming && blocks > 0 && floor === Mat.Air) out(nx, y, nz, COST.bridge, MoveKind.Bridge, 1);
       }
     } else if (feet === Mat.Water && isAir(head)) {
       out(nx, y, nz, COST.swim, MoveKind.Swim, 0);
-    } else if (!swimming && (isAir(feet) || isDiggable(feet)) && (isAir(head) || isDiggable(head))) {
+    } else if (!swimming && (isOpen(feet) || isDiggable(feet)) && (isOpen(head) || isDiggable(head))) {
       // Something diggable in the way (feet, head or both), with a floor to land on.
-      if (isSolid(g.get(nx, y - 1, nz))) {
-        out(nx, y, nz, COST.digBase + HARDNESS[feet] + HARDNESS[head], MoveKind.Dig, 0);
+      if (isFloor(g.get(nx, y - 1, nz))) {
+        out(nx, y, nz, COST.digBase + HARDNESS[feet] + HARDNESS[head] + leafCost(feet, head), MoveKind.Dig, 0);
       }
     }
 
@@ -150,18 +180,19 @@ export function expandMoves(g: Grid, x: number, y: number, z: number, blocks: nu
   for (let i = 0; i < 4; i++) {
     const dx = DIAGONAL[i][0], dz = DIAGONAL[i][1];
     if (isClear(g, x + dx, y, z) && isClear(g, x, y, z + dz) && canStand(g, x + dx, y, z + dz)) {
-      out(x + dx, y, z + dz, COST.diagonal, MoveKind.Diagonal, 0);
+      const cost = COST.diagonal * FLOOR_COST[g.get(x + dx, y - 1, z + dz)] + leafCost(g.get(x + dx, y, z + dz), g.get(x + dx, y + 1, z + dz));
+      out(x + dx, y, z + dz, cost, MoveKind.Diagonal, 0);
     }
   }
 
   // Dig down: dig out the floor and land on the block under it. Never dig into a fall.
   const below = g.get(x, y - 1, z);
-  if (isDiggable(below) && isSolid(g.get(x, y - 2, z))) {
+  if (isDiggable(below) && isFloor(g.get(x, y - 2, z))) {
     out(x, y - 1, z, COST.digDownBase + HARDNESS[below], MoveKind.DigDown, 0);
   }
 
   // Pillar: jump and place a block where the feet were.
-  if (blocks > 0 && isAir(g.get(x, y + 2, z))) {
+  if (blocks > 0 && g.get(x, y, z) === Mat.Air && isAir(g.get(x, y + 2, z))) {
     out(x, y + 1, z, COST.pillar, MoveKind.Pillar, 1);
   }
 }
@@ -185,11 +216,20 @@ export function isMoveValid(
  * Admissible estimate: horizontal octile distance, plus the extra each level
  * up (a step-up costs 1 more than a walk) or down (0.5 per block dropped) adds.
  * Every world-changing move costs at least as much as the plain move it replaces.
+ *
+ * `floor` is the cheapest walking multiplier on the course (MIN_FLOOR_COST when there's
+ * ice): the horizontal part is scaled by it so the estimate never overshoots, which is
+ * why ice makes the bot think harder.
  */
-export function heuristic(x: number, y: number, z: number, gx: number, gy: number, gz: number): number {
+export function heuristic(x: number, y: number, z: number, gx: number, gy: number, gz: number, floor = 1): number {
   const dx = Math.abs(gx - x), dz = Math.abs(gz - z);
   const lo = Math.min(dx, dz), hi = Math.max(dx, dz);
   const dy = gy - y;
   const vertical = dy > 0 ? dy * (COST.stepUp - COST.walk) : -dy * COST.dropPerBlock;
-  return (hi - lo) * COST.walk + lo * COST.diagonal + vertical;
+  return ((hi - lo) * COST.walk + lo * COST.diagonal) * floor + vertical;
+}
+
+/** The heuristic's floor factor for a course: MIN_FLOOR_COST if it has any ice. */
+export function floorFactor(data: Uint8Array | undefined): number {
+  return data && data.includes(Mat.Ice) ? MIN_FLOOR_COST : 1;
 }

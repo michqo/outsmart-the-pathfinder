@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Palette } from '../palette';
 import { rng } from '../world/noise';
 import { CLOUD_GLSL, createCloudUniforms } from './clouds';
+import { TIME_LIGHT, type TimeLight } from './timeOfDay';
 
 /** Clear-sky colour samples from the horizon to the zenith. */
 const BANDS = 10;
@@ -26,6 +27,10 @@ export class Sky {
     uSunColor: { value: new THREE.Color(1, 1, 1) },
   };
   private measured: THREE.Texture | null = null;
+  /** Untinted sky colours (palette gradient, measured bands, sun colour); time of day tints copies. */
+  private base = { top: new THREE.Color(), horizon: new THREE.Color(), bottom: new THREE.Color(), bands: [] as THREE.Color[], sun: new THREE.Color(1, 1, 1) };
+  private time: TimeLight = TIME_LIGHT.day;
+  private stars: THREE.Points;
   private clouds: { mesh: THREE.Mesh; angle: number; radius: number; y: number; speed: number; phase: number }[] = [];
 
   constructor() {
@@ -153,6 +158,23 @@ export class Sky {
     this.realDome.visible = false;
     this.group.add(this.realDome);
 
+    // Stars: a fixed scatter on the upper sky, faded in by the time of day.
+    const sr = rng(1234);
+    const pos: number[] = [];
+    for (let i = 0; i < 900; i++) {
+      const y = 0.08 + sr() * 0.92, a = sr() * Math.PI * 2, rr = Math.sqrt(1 - y * y);
+      pos.push(Math.cos(a) * rr * 650, y * 650, Math.sin(a) * rr * 650);
+    }
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    this.stars = new THREE.Points(
+      sg,
+      new THREE.PointsMaterial({ color: 0xfff6e8, size: 1.8, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
+    );
+    this.stars.renderOrder = -0.5;
+    this.stars.visible = false;
+    this.group.add(this.stars);
+
     const r = rng(99);
     for (let i = 0; i < 7; i++) {
       const mesh = new THREE.Mesh(makeCloud(r), this.cloudMaterial);
@@ -171,10 +193,30 @@ export class Sky {
   }
 
   setPalette(p: Palette): void {
-    this.uniforms.uTop.value.setHex(p.sky.top);
-    this.uniforms.uHorizon.value.setHex(p.sky.horizon);
-    this.uniforms.uBottom.value.setHex(p.sky.bottom);
+    this.base.top.setHex(p.sky.top);
+    this.base.horizon.setHex(p.sky.horizon);
+    this.base.bottom.setHex(p.sky.bottom);
     this.cloudMaterial.color.setHex(p.cloud);
+    this.applyTime();
+  }
+
+  /** Lights the sky for a time of day: tints the gradient and bands, shows the stars. */
+  setTime(t: TimeLight): void {
+    this.time = t;
+    this.applyTime();
+  }
+
+  private applyTime(): void {
+    const t = this.time;
+    const tint = new THREE.Color(t.skyTint).multiplyScalar(t.sky);
+    this.uniforms.uTop.value.copy(this.base.top).multiply(tint);
+    this.uniforms.uHorizon.value.copy(this.base.horizon).multiply(tint);
+    this.uniforms.uBottom.value.copy(this.base.bottom).multiply(tint);
+    this.base.bands.forEach((c, i) => this.realUniforms.uBands.value[i].copy(c).multiply(tint));
+    this.realUniforms.uSunColor.value.copy(this.base.sun).multiply(new THREE.Color(t.sunColor)).multiplyScalar(t.stars >= 1 ? 0.6 : 1);
+    const m = this.stars.material as THREE.PointsMaterial;
+    m.opacity = t.stars;
+    this.stars.visible = t.stars > 0;
   }
 
   /** Realistic sky measured from an equirect HDR (null = the stylised gradient + clouds). */
@@ -183,10 +225,11 @@ export class Sky {
     if (env && env !== this.measured) {
       this.measured = env;
       const bands = measureSky(env);
-      bands.forEach((c, i) => this.realUniforms.uBands.value[i].copy(c));
+      this.base.bands = bands;
       // Sunlit cloud tops: a warm white well above the brightest clear sky.
       const top = Math.max(...bands.map((c) => c.r * 0.3 + c.g * 0.59 + c.b * 0.11));
-      this.realUniforms.uSunColor.value.setRGB(1.0, 0.96, 0.9).multiplyScalar(Math.max(0.6, top * 2.2));
+      this.base.sun.setRGB(1.0, 0.96, 0.9).multiplyScalar(Math.max(0.6, top * 2.2));
+      this.applyTime();
     }
     if (sunDir) this.cloud.uSunDir.value.copy(sunDir);
     this.realDome.visible = env !== null;

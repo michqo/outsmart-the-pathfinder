@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { grassFaces, type GrassStyle, type Palette } from '../palette';
+import { blockFaces, grassFaces, type GrassStyle, type Palette } from '../palette';
 import { MAT_KEYS } from '../world/materials';
 import { COLOR_KINDS, COLOR_TABLE_SIZE, meshChunk, type MeshData, type MeshOptions } from '../world/mesher';
 import type { World } from '../world/world';
@@ -170,7 +170,7 @@ export function fillColorTable(t: Float32Array, p: Palette, grassStyle: GrassSty
   for (let m = 1; m < MAT_KEYS.length; m++) {
     const key = MAT_KEYS[m];
     if (key === 'water' || key === 'air') continue;
-    const f = p.blocks[key];
+    const f = blockFaces(p, key);
     const kinds = key === 'grass' ? grassFaces(p, grassStyle) : [f.top, f.side, f.bottom, f.side];
     kinds.forEach((hex, kind) => {
       c.setHex(hex); // sRGB -> linear

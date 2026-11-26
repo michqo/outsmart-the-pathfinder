@@ -16,7 +16,7 @@ export interface Palette {
     stone: FaceColors;
     crystal: FaceColors;
     placed: FaceColors;
-  };
+  } & Partial<Record<ExtraBlock, FaceColors>>;
   water: number;
   waterOpacity: number;
   sky: { top: number; horizon: number; bottom: number };
@@ -27,6 +27,24 @@ export interface Palette {
 }
 
 const faces = (top: number, side: number, bottom = side): FaceColors => ({ top, side, bottom });
+
+/** Blocks added with the biomes (M11). Every palette shares these unless it overrides them. */
+export type ExtraBlock = 'sand' | 'ice' | 'mud' | 'timber' | 'leaves' | 'magma' | 'snow';
+export const EXTRA_BLOCKS: Record<ExtraBlock, FaceColors> = {
+  sand: faces(0xf3dfa8, 0xe6cc8e, 0xd9bc80),
+  ice: faces(0xd8f1ff, 0xb9e0f7, 0xa6d2ee),
+  mud: faces(0x8a6a55, 0x775946, 0x684d3d),
+  timber: faces(0xc59a6a, 0x9c7350, 0xc59a6a),
+  leaves: faces(0x6fbf73, 0x5aa866, 0x4f955c),
+  magma: faces(0xff7a3d, 0xe0552e, 0xb8402a),
+  snow: faces(0xf6faff, 0xe3ebf5, 0xd6dfeb),
+};
+
+type BlockKey = keyof Palette['blocks'] | ExtraBlock;
+/** A block's colours in a palette (falling back to the shared extras). */
+export function blockFaces(p: Palette, key: BlockKey): FaceColors {
+  return (p.blocks as Record<string, FaceColors | undefined>)[key] ?? EXTRA_BLOCKS[key as ExtraBlock];
+}
 
 export const PALETTES: Record<string, Palette> = {
   meadow: {

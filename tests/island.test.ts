@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Biome, generateIsland, GEN_VERSION, islandParams, ISLAND_SIZE, type IslandSpec } from '../src/gen/island';
+import { Biome, generateIsland, GEN_VERSION, islandKey, islandParams, ISLAND_SIZE, type IslandSpec } from '../src/gen/island';
 import { islandLevel } from '../src/levels/levels';
 import { defaultSpawn } from '../src/levels/spawn';
 import { AStar } from '../src/path/astar';
@@ -21,17 +21,23 @@ describe('island generator', () => {
    * If you change the generator on purpose, bump GEN_VERSION and update these.
    */
   it(`v${GEN_VERSION} output matches the golden hashes`, () => {
-    expect(GEN_VERSION).toBe(1);
+    expect(GEN_VERSION).toBe(2);
     const golden: [IslandSpec, string, string][] = [
-      [{ seed: 1, ix: 0, iz: 0 }, '27ae5c0d', '1bbddb0a'],
-      [{ seed: 99999, ix: 0, iz: 0 }, 'cde1478d', 'dab5fe4c'],
-      [{ seed: 47, ix: 3, iz: -2 }, 'baf1fbb7', '3fd7113e'],
-      [{ seed: 99999, ix: 0, iz: 0, maxSize: 80 }, '5199cfcd', 'cf195247'],
+      [{ seed: 1, ix: 0, iz: 0 }, '943dd7d9', '9284ac70'],
+      [{ seed: 99999, ix: 0, iz: 0 }, 'a1f632bd', '600cc09d'],
+      [{ seed: 47, ix: 3, iz: -2 }, '8226a191', '6fcfefd9'],
+      [{ seed: 5, ix: 0, iz: 0, maxSize: 80 }, 'e9e225fa', 'dc2835f7'], // 95 across, capped to 80
     ];
     for (const [spec, data, biome] of golden) {
       const isl = generateIsland(spec);
       expect([fnv(isl.data), fnv(isl.biome)], JSON.stringify(spec)).toEqual([data, biome]);
     }
+  });
+
+  it('no two islands of an archipelago share a key (v1 had mirror-image twins)', () => {
+    const keys = new Set<number>();
+    for (let x = -8; x <= 8; x++) for (let z = -8; z <= 8; z++) keys.add(islandKey({ seed: 2899456169, ix: x, iz: z }));
+    expect(keys.size).toBe(17 * 17);
   });
 
   it('is deterministic, and every island of an archipelago differs', () => {

@@ -11,16 +11,18 @@ import { TUNE_VERSION, tuneIsland } from './gen/tune';
 import { cachedTuning, storeTuning } from './gen/tuneCache';
 import { archPosition, islandProgress, recordIsland, setArchPosition, starredCount } from './levels/archProgress';
 import { SkyIslands, type SkyBridge, type SkyIsland } from './render/skyIslands';
+import { TIME_LIGHT, timeOfDayFor, type TimeOfDay } from './render/timeOfDay';
+import { Biome } from './gen/island';
 import { bestFor, bestScores, recordScore, setLastLevel } from './levels/progress';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
 import { AlgorithmDuel, type DuelOpponent } from './path/duel';
 import { openLevelsDialog, ScorePanel } from './ui/scorePanel';
-import { Sfx } from './audio/sfx';
+import { Sfx, type Ambience } from './audio/sfx';
 import { Corner } from './ui/corner';
 import { HowTo } from './ui/howTo';
 import { EditHistory } from './edit/history';
-import { grassFaces, PALETTES } from './palette';
+import { blockFaces, grassFaces, PALETTES } from './palette';
 import { ChunkRenderer } from './render/chunks';
 import { createStage } from './render/scene';
 import { Sky } from './render/sky';
@@ -87,6 +89,13 @@ function colorOf(m: Mat): number {
     case Mat.Crystal: return p.blocks.crystal.top;
     case Mat.Water: return p.water;
     case Mat.Placed: return p.blocks.placed.top;
+    case Mat.Sand: return blockFaces(p, 'sand').top;
+    case Mat.Ice: return blockFaces(p, 'ice').top;
+    case Mat.Mud: return blockFaces(p, 'mud').top;
+    case Mat.Timber: return blockFaces(p, 'timber').side;
+    case Mat.Leaves: return blockFaces(p, 'leaves').top;
+    case Mat.Magma: return blockFaces(p, 'magma').top;
+    case Mat.Snow: return blockFaces(p, 'snow').top;
     default: return 0xffffff;
   }
 }
@@ -131,7 +140,7 @@ const bot = new BotController(
     colorOf,
     onWorldChanged: () => scheduleUnderside(),
     onRunEnd: (arrived, nodes, edited) => onRunEnd(arrived, nodes, edited),
-    onSound: (s) => sfx.play(s),
+    onSound: (s, mat) => sfx.play(s, mat),
   },
   spawn.start,
   spawn.goal,
@@ -159,7 +168,10 @@ editor.onEdit = (cells) => {
     score.toast(`Out of edits: this level allows ${course.level.budget}. Remove a block to free one.`);
     return;
   }
-  if (cells.length) sfx.play(world.data[cells[0]] === Mat.Air ? 'remove' : 'place');
+  if (cells.length) {
+    const now = world.data[cells[0]];
+    sfx.play(now === Mat.Air ? 'remove' : 'place', now === Mat.Air ? history.lastBefore : now);
+  }
   scheduleUnderside();
   if (course.level !== HEURISTIC_TRAP) bot.onWorldEdit(cells);
   if (cells.length > 0) invalidateDuel();
@@ -180,25 +192,40 @@ const post = new PostFX(stage.renderer, stage.scene, stage.camera);
 const realistic = () => settings.style === 'realistic' && assets !== null;
 const DEFAULT_SUN = new THREE.Vector3(45, 70, 28).normalize();
 
+/** The current course's time of day (see timeOfDay.ts). */
+let timeOfDay: TimeOfDay = 'day';
+
+/** Where the sun (or moon) stands for a time of day; null = the look's own sun. */
+function timedSun(): THREE.Vector3 | null {
+  if (timeOfDay === 'day') return null;
+  const t = TIME_LIGHT[timeOfDay];
+  const flat = Math.sqrt(1 - t.elevation * t.elevation);
+  return new THREE.Vector3(Math.cos(t.bearing) * flat, t.elevation, Math.sin(t.bearing) * flat);
+}
+
 function applyPalette(): void {
   const p = palette();
   const real = realistic();
+  const tl = TIME_LIGHT[timeOfDay];
+  const timed = timedSun();
+  sky.setTime(tl);
   chunks.setRealistic(real ? { terrain: terrain!.material, water: water!.material } : null);
   chunks.setPalette(p, settings.grassStyle);
   sky.setPalette(p);
-  sky.setReal(real ? (assets!.env as THREE.DataTexture) : null, settings.envIntensity, real ? assets!.sunDir : undefined);
+  sky.setReal(real ? (assets!.env as THREE.DataTexture) : null, settings.envIntensity, real ? (timed ?? assets!.sunDir) : undefined);
   skyIslands.setPalette(p, settings.grassStyle);
   skyIslands.setHaze(sky.hazeColor());
   stage.scene.environment = real ? assets!.env : null;
-  stage.scene.environmentIntensity = settings.envIntensity;
+  stage.scene.environmentIntensity = settings.envIntensity * tl.ambient;
+  stage.renderer.toneMappingExposure = settings.exposure * tl.exposure;
   stage.hemi.visible = !real;
   if (real) {
     // Light comes from where the sun is in the HDRI (kept high enough for readable shadows).
-    const d = assets!.sunDir.clone();
-    d.y = Math.max(d.y, 0.55);
+    const d = (timed ?? assets!.sunDir).clone();
+    d.y = Math.max(d.y, timed ? 0.22 : 0.55);
     stage.sun.position.copy(stage.sun.target.position).addScaledVector(d.normalize(), 85);
-    stage.sun.color.setHex(0xfff1df);
-    stage.sun.intensity = 2.6;
+    stage.sun.color.setHex(0xfff1df).multiply(new THREE.Color(tl.sunColor));
+    stage.sun.intensity = 2.6 * tl.sun;
     terrain!.uniforms.uPlaced.value.setHex(p.blocks.placed.top);
     terrain!.uniforms.uCrystal.value.setHex(p.blocks.crystal.side);
     const u = terrain!.uniforms;
@@ -207,14 +234,16 @@ function applyPalette(): void {
     u.uGrassSide.value.setHex(p.blocks.grass.side);
     u.uSoil.value.setHex(p.blocks.soil.side);
     u.uStone.value.setHex(p.blocks.stone.side);
+    (['sand', 'ice', 'mud', 'timber', 'leaves', 'magma', 'snow'] as const).forEach((k, i) => u.uExtra.value[i].setHex(k === 'timber' ? blockFaces(p, k).side : blockFaces(p, k).top));
   } else {
-    stage.sun.position.copy(stage.sun.target.position).addScaledVector(DEFAULT_SUN, 85);
-    stage.sun.color.setHex(p.sun.color);
-    stage.sun.intensity = p.sun.intensity;
+    const d = timed ? timed.clone().setY(Math.max(timed.y, 0.22)).normalize() : DEFAULT_SUN;
+    stage.sun.position.copy(stage.sun.target.position).addScaledVector(d, 85);
+    stage.sun.color.setHex(p.sun.color).multiply(new THREE.Color(tl.sunColor));
+    stage.sun.intensity = p.sun.intensity * tl.sun;
   }
   stage.hemi.color.setHex(p.hemi.sky);
   stage.hemi.groundColor.setHex(p.hemi.ground);
-  stage.hemi.intensity = p.hemi.intensity;
+  stage.hemi.intensity = p.hemi.intensity * tl.ambient;
   bot.bot.setRealistic(real);
   hotbar.setColors(colorOf);
   applyMeshOptions();
@@ -313,7 +342,7 @@ const pane = createPanel(settings, stats, {
   onJitter: () => (chunks.jitter.value = settings.jitter),
   onShadows: () => (stage.sun.castShadow = settings.shadows),
   onWireframe: () => chunks.setWireframe(settings.wireframe),
-  onExposure: () => (stage.renderer.toneMappingExposure = settings.exposure),
+  onExposure: () => (stage.renderer.toneMappingExposure = settings.exposure * TIME_LIGHT[timeOfDay].exposure),
   onRegenerate: () =>
     startLevel({ ...SANDBOXES[0], generate: (w) => (generateTestIsland(w, settings.seed), defaultSpawn(w)) }),
   onGauntlet: () => startLevel(levelById('gauntlet')!),
@@ -533,6 +562,7 @@ function lastArchIsland(): ArchIsland {
 
 function archLevel(a: ArchIsland, spec: ReturnType<typeof archSpec>, island: Parameters<typeof islandLevel>[1], tuning: Parameters<typeof islandLevel>[2]): Level {
   const level = islandLevel(spec, island, tuning, archName(a));
+  level.time = timeOfDayFor(spec.seed, a.ix, a.iz);
   level.hint = `${level.hint} Zoom out to see the other islands; ★ here opens bridges to its neighbours.`;
   return level;
 }
@@ -797,6 +827,43 @@ function startArchipelago(): void {
   }
 }
 
+/** The ambient bed for a course: its time, and how much of it is forest, snow, sand, lava or water. */
+function ambienceFor(level: Level, time: TimeOfDay): Ambience {
+  const share = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  let land = 0;
+  if (level.biome) for (const b of level.biome) if (b) (share[b]++, land++);
+  const f = (b: number) => (land ? share[b] / land : 0);
+  return {
+    time,
+    forest: level.biome ? f(Biome.Forest) : 0.3,
+    snowy: f(Biome.Snowy),
+    desert: f(Biome.Desert),
+    volcanic: f(Biome.Volcanic),
+    wet: f(Biome.Wetlands),
+  };
+}
+
+/** Lanterns at the start and flag, and a lamp on the bot, after dark. */
+const lanterns = [0, 1].map(() => {
+  const l = new THREE.PointLight(0xffb45e, 0, 16, 1.4);
+  stage.island.add(l);
+  return l;
+});
+const botLamp = new THREE.PointLight(0xffe6bf, 0, 12, 1.4);
+stage.scene.add(botLamp);
+const lampTmp = new THREE.Vector3();
+
+function updateLanterns(): void {
+  const on = TIME_LIGHT[timeOfDay].lanterns;
+  [bot.home, bot.goal].forEach((c, i) => {
+    lanterns[i].intensity = on * 26;
+    lanterns[i].position.set(c[0] + 0.5, c[1] + 1.8, c[2] + 0.5);
+  });
+  botLamp.intensity = on * on * 14;
+  bot.bot.root.getWorldPosition(lampTmp);
+  botLamp.position.set(lampTmp.x, lampTmp.y + 2.2, lampTmp.z);
+}
+
 /** Window size the camera distance was last fitted to (1 = 64 wide). */
 let stageScale = 1;
 
@@ -831,6 +898,12 @@ function applyCourse(c: Course, compare = false): void {
   world.markAllDirty();
   fitStage();
   chunks.tint.set(c.level.biome, world.sx, world.sz);
+  const time = c.level.time ?? 'day';
+  if (time !== timeOfDay) {
+    timeOfDay = time;
+    applyPalette();
+  }
+  sfx.setAmbience(ambienceFor(c.level, time));
   history.clear();
   touched.clear();
   lastScore = sandboxBest = 0;
@@ -973,6 +1046,7 @@ stage.renderer.setAnimationLoop((time) => {
   sky.update(t);
   updateFlight(dt);
   updateGlide(dt);
+  updateLanterns();
   stage.controls.update();
   skyIslands.update(dt, stage.camera, inArchipelago() && !flight && !busy && !duelActive && zoomedOut());
   if (water) water.time.value = t;
