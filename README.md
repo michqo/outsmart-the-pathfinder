@@ -9,7 +9,7 @@ The bot isn't helpless. It can dig (slate is slow, crystal can't be dug), swim, 
 - **Weighted A\*** slider in sandboxes, to see how greed trades nodes for path quality
 - **Algorithm Duel:** compare A* against Dijkstra, Weighted A*, or Pareto A*. The table shows states expanded, planned cost, and active worker time. The visual traces play at the same event rate, so a shorter trace finishes sooner; playback is not a compute benchmark.
 - **Riftworks:** open **Levels → Riftworks** for a seeded, 36-room maze with rising terraces, flood pools, diggable gates, and bridge shortcuts. Enter a seed to reproduce a layout or choose **Random** for another. **Heuristic Trap** is a separate six-edit puzzle.
-- **Generated islands:** open **Levels → Generated island** for an eroded island with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands). Each seed gives the same island on every device; phones get a smaller footprint.
+- **Generated islands:** open **Levels → Generated island** for an eroded island with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands). Pick a tier from 1 to 5: the island is surveyed (a few seconds, the first time only) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. Each seed gives the same island and stars on every device; touch devices get a smaller footprint.
 - Works with mouse, trackpad and touch
 - Requires WebGL 2. The island is playable with simple graphics while the detailed textures load in the background.
 

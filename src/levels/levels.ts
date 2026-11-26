@@ -2,6 +2,7 @@ import type { Vec3i } from '../path/protocol';
 import { Mat } from '../world/materials';
 import { fbm } from '../world/noise';
 import { generateIsland, type Island, type IslandSpec } from '../gen/island';
+import type { Tuning } from '../gen/tune';
 import { generateTestIsland } from '../world/testIsland';
 import type { World } from '../world/world';
 import { generateGauntlet } from './gauntlet';
@@ -31,6 +32,8 @@ export interface Level {
   seed?: number;
   /** Seeded generators: the seed box regenerates this kind. */
   kind?: 'riftworks' | 'island';
+  /** Generated islands: the difficulty tier (1–5) when surveyed. */
+  tier?: number;
   /** Generated islands: per-column biome, for the terrain tint. */
   biome?: Uint8Array;
 }
@@ -229,22 +232,27 @@ export function riftworksLevel(seed = RIFTWORKS_SEED): Level {
 }
 
 /**
- * A generated island in a sandbox. Pass `island` when it was already generated (in the
- * worker); otherwise it's generated synchronously on first use.
+ * A generated island. With a `tuning` (from the survey) it's a scored challenge: start
+ * and flag, edit budget, blocks and stars set for its tier. Without one it's a sandbox.
+ * Pass `island` when it was already generated (in the worker); otherwise it's generated
+ * synchronously on first use.
  */
-export function islandLevel(seed = ISLAND_SEED, island?: Island, maxSize?: number): Level {
+export function islandLevel(seed = ISLAND_SEED, island?: Island, maxSize?: number, tuning?: Tuning): Level {
   const spec: IslandSpec = { seed, ix: 0, iz: 0, maxSize };
   let made = island;
   return {
-    id: ISLAND_ID,
-    name: 'Generated island',
-    hint: 'A fresh island from the seed: eroded hills, rivers, lakes and biomes. Build on it, or try another seed.',
-    inventory: 16,
+    id: tuning ? islandLevelId(spec, tuning.tier) : ISLAND_ID,
+    name: tuning ? `Island ${seed}` : 'Generated island',
+    hint: tuning
+      ? `Tier ${tuning.tier}: ${tuning.budget} edits, ${tuning.blocks} blocks. Eroded hills, rivers, lakes and biomes, surveyed for a route that makes the bot think.`
+      : 'A fresh island from the seed: eroded hills, rivers, lakes and biomes. Build on it, or try another seed.',
+    inventory: tuning ? tuning.blocks : 16,
     weight: 1,
-    budget: null,
-    stars: null,
+    budget: tuning ? tuning.budget : null,
+    stars: tuning ? tuning.stars : null,
     seed,
     kind: 'island',
+    tier: tuning?.tier,
     get biome() {
       return made?.biome;
     },
@@ -254,9 +262,14 @@ export function islandLevel(seed = ISLAND_SEED, island?: Island, maxSize?: numbe
       world.reshape(sx, sy, sz);
       world.data.set(made.data);
       world.markAllDirty();
-      return defaultSpawn(world);
+      return tuning ? { start: [...tuning.start], goal: [...tuning.goal] } : defaultSpawn(world);
     },
   };
+}
+
+/** Progress key: the island (and its size cap, which changes it) at a tier. */
+export function islandLevelId(spec: IslandSpec, tier: number): string {
+  return `island:${spec.seed}:t${tier}${spec.maxSize ? `:s${spec.maxSize}` : ''}`;
 }
 
 export function levelById(id: string): Level | undefined {

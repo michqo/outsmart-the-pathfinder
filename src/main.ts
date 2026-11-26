@@ -3,9 +3,11 @@ import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
 import { Handles } from './edit/handles';
 import { courseFromHash, decodeLevel, encodeLevel, HASH_KEY } from './levels/codec';
-import { HEURISTIC_TRAP, islandLevel, LEVELS, levelById, riftworksLevel, SANDBOXES, type Level } from './levels/levels';
+import { HEURISTIC_TRAP, ISLAND_SEED, islandLevel, LEVELS, levelById, riftworksLevel, SANDBOXES, type Level } from './levels/levels';
 import { IslandClient } from './gen/client';
 import { ISLAND_SIZE } from './gen/island';
+import { TIERS } from './gen/tune';
+import { cachedTuning, storeTuning } from './gen/tuneCache';
 import { bestFor, bestScores, lastLevel, recordScore, setLastLevel } from './levels/progress';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
@@ -381,13 +383,13 @@ const score = new ScorePanel({
     duel?.clear();
     score.setDuel(true, false, opponent);
   },
-  onSeed: (seed) => {
+  onSeed: (seed, tier) => {
     if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
       score.toast('Enter a whole seed from 0 to 4,294,967,295.');
       return;
     }
     clearHash();
-    if (course.level.kind === 'island') void startIsland(seed);
+    if (course.level.kind === 'island') void startIsland(seed, tier);
     else startLevel(riftworksLevel(seed));
   },
 });
@@ -478,18 +480,46 @@ function startLevel(level: Level, dare = 0): void {
 
 const islands = new IslandClient();
 let islandRequest = 0;
-/** Phones get smaller islands from the same seed (see PLAN.md, M8). */
-const islandCap = matchMedia('(max-width: 720px), (pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
+/**
+ * Touch devices get smaller islands from the same seed (see PLAN.md, M8). Decided by the
+ * input, not the window width, so resizing a desktop window never changes the island.
+ */
+const islandCap = matchMedia('(pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
 
-/** Generates an island in the worker, then opens it. A newer request wins. */
-async function startIsland(seed = course?.level.kind === 'island' ? course.level.seed : undefined): Promise<void> {
-  const id = ++islandRequest;
-  score.toast('Raising the island…');
+const TIER_KEY = 'pathfinder.tier';
+/** The tier picked last (1–5), so the next island opens at the same difficulty. */
+let islandTier = (() => {
   try {
-    const level = islandLevel(seed, undefined, islandCap);
-    const island = await islands.generate({ seed: level.seed!, ix: 0, iz: 0, maxSize: islandCap });
+    const t = Number(localStorage.getItem(TIER_KEY));
+    return t >= 1 && t <= TIERS.length ? t : 2;
+  } catch {
+    return 2;
+  }
+})();
+
+/**
+ * Generates an island in the worker and opens it as a challenge at a tier. The first time
+ * an island is played at a tier it's surveyed (route + stars, a few seconds); after that the
+ * survey comes from the cache. A newer request wins.
+ */
+async function startIsland(seed = course?.level.kind === 'island' ? course.level.seed : undefined, tier = islandTier): Promise<void> {
+  const id = ++islandRequest;
+  islandTier = tier;
+  try {
+    localStorage.setItem(TIER_KEY, String(tier));
+  } catch {
+    // ignore
+  }
+  try {
+    const spec = { seed: seed ?? ISLAND_SEED, ix: 0, iz: 0, maxSize: islandCap };
+    const cached = cachedTuning(spec, tier);
+    score.toast(cached ? 'Raising the island…' : 'Surveying the island…');
+    const { island, tuning } = await islands.generate(spec, cached ? undefined : tier, (f) => {
+      if (id === islandRequest) score.toast(`Surveying the island… ${Math.round(f * 100)}%`);
+    });
     if (id !== islandRequest) return;
-    startLevel(islandLevel(level.seed, island, islandCap));
+    if (tuning) storeTuning(spec, tuning);
+    startLevel(islandLevel(spec.seed, island, islandCap, cached ?? tuning));
   } catch (err) {
     console.warn('Island generation failed', err);
     score.toast("That island couldn't be generated");

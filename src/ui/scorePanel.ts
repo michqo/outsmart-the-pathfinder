@@ -57,6 +57,7 @@ const CSS = /* css */ `
 .sp .duel .timing-note { margin: 4px 0; font-weight: 500; }
 .sp .seed-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
 .sp .seed-form input { width: 7em; min-height: 28px; box-sizing: border-box; font: inherit; }
+.sp .seed-form select { min-height: 32px; border: 0; border-radius: 8px; background: #ece8f4; color: inherit; font: inherit; padding: 0 6px; }
 .sp .seed-form button { min-height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: #ece8f4; color: inherit; font: inherit; cursor: pointer; }
 .sp .lv .tog { display: none; opacity: .5; }
 @media (max-width: 720px) {
@@ -100,7 +101,8 @@ export interface ScorePanelHandlers {
   onWeight(w: number): void;
   onDuelToggle(): void;
   onOpponent(opponent: DuelOpponent): void;
-  onSeed(seed: number): void;
+  /** The seed box: `tier` is the tier picker's value (generated islands only). */
+  onSeed(seed: number, tier: number): void;
 }
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -125,6 +127,7 @@ export class ScorePanel {
       <p class="lvhint"></p>
       <form class="seed-form" hidden>
         <label for="rift-seed">Seed</label><input id="rift-seed" name="seed" type="number" min="0" max="4294967295" required>
+        <select id="island-tier" aria-label="Difficulty tier" hidden>${[1, 2, 3, 4, 5].map((t) => `<option value="${t}">Tier ${t}</option>`).join('')}</select>
         <button>Generate</button><button class="new-seed" type="button">Random</button>
       </form>
       <div class="regular-score">
@@ -175,14 +178,20 @@ export class ScorePanel {
     };
     this.q<HTMLFormElement>('.seed-form').onsubmit = (event) => {
       event.preventDefault();
-      h.onSeed(this.q<HTMLInputElement>('#rift-seed').valueAsNumber);
+      h.onSeed(this.q<HTMLInputElement>('#rift-seed').valueAsNumber, this.tier());
     };
-    this.q('.new-seed').onclick = () => h.onSeed(crypto.getRandomValues(new Uint32Array(1))[0]);
+    this.q('.new-seed').onclick = () => h.onSeed(crypto.getRandomValues(new Uint32Array(1))[0], this.tier());
+    const tier = this.q<HTMLSelectElement>('#island-tier');
+    tier.onchange = () => h.onSeed(this.level?.seed ?? 0, this.tier());
     const range = this.q<HTMLInputElement>('.weight input');
     range.oninput = () => {
       this.q('.wv').textContent = Number(range.value).toFixed(1);
       h.onWeight(Number(range.value));
     };
+  }
+
+  private tier(): number {
+    return Number(this.q<HTMLSelectElement>('#island-tier').value) || 1;
   }
 
   /** A level was loaded. `dare` is a friend's score from a share link (0 = none). */
@@ -191,10 +200,12 @@ export class ScorePanel {
     this.best = best;
     this.dare = dare;
     this.q('.name').textContent = level.name;
-    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : level === HEURISTIC_TRAP ? 'Duel puzzle' : level.seed === undefined ? 'Sandbox' : 'Generated';
+    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : level === HEURISTIC_TRAP ? 'Duel puzzle' : level.tier ? `Tier ${level.tier}` : level.seed === undefined ? 'Sandbox' : 'Generated';
     this.q('.lvhint').textContent = level.hint;
     this.q('.seed-form').hidden = level.seed === undefined;
     this.q<HTMLInputElement>('#rift-seed').value = level.seed === undefined ? '' : String(level.seed);
+    this.q('#island-tier').hidden = level.kind !== 'island';
+    if (level.tier) this.q<HTMLSelectElement>('#island-tier').value = String(level.tier);
     this.q('.nodes').textContent = '–';
     this.q('.score').classList.remove('miss');
     this.q('.unit').textContent = 'nodes';
@@ -324,7 +335,7 @@ export function openLevelsDialog(
   const card = (l: Level, i: number | null) => {
     const got = starsFor(l, best[l.id] ?? 0);
     const stars = l.stars ? `<span class="s">${'★'.repeat(got)}<span class="off">${'★'.repeat(3 - got)}</span></span>` : '';
-    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : l.kind === 'riftworks' ? 'Seeded maze · 36 rooms' : l.kind === 'island' ? 'Seeded · erosion, rivers, biomes' : 'No limits';
+    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : l.kind === 'riftworks' ? 'Seeded maze · 36 rooms' : l.kind === 'island' ? 'Seeded · tiers 1–5 · stars' : 'No limits';
     return `<button class="card${l.id === current ? ' on' : ''}" data-id="${l.id}"${l.id === current ? ' autofocus' : ''}>
       ${i !== null ? `<span class="n">Level ${i + 1}</span>` : ''}<b>${l.name}</b>${stars}<small>${sub}</small></button>`;
   };

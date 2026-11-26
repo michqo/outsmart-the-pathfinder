@@ -1,21 +1,31 @@
 import type { Island, IslandSpec } from './island';
+import type { Tuning } from './tune';
 import type { GenReply } from './worker';
 
-/** Main-thread handle on the generator worker. A newer request supersedes older ones. */
+interface Pending {
+  resolve(r: { island: Island; tuning?: Tuning }): void;
+  reject(e: Error): void;
+  onProgress?(f: number): void;
+}
+
+/** Main-thread handle on the generator worker. */
 export class IslandClient {
   private worker: Worker | null = null;
   private nextId = 0;
-  private pending = new Map<number, { resolve(i: Island): void; reject(e: Error): void }>();
+  private pending = new Map<number, Pending>();
 
-  generate(spec: IslandSpec): Promise<Island> {
+  /** Generates the island; with `tier`, also surveys it (start/flag, budget, stars). */
+  generate(spec: IslandSpec, tier?: number, onProgress?: (f: number) => void): Promise<{ island: Island; tuning?: Tuning }> {
     if (!this.worker) {
       this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (e: MessageEvent<GenReply>) => {
-        const p = this.pending.get(e.data.id);
+        const msg = e.data;
+        const p = this.pending.get(msg.id);
         if (!p) return;
-        this.pending.delete(e.data.id);
-        if ('island' in e.data) p.resolve(e.data.island);
-        else p.reject(new Error(e.data.error));
+        if ('progress' in msg) return p.onProgress?.(msg.progress);
+        this.pending.delete(msg.id);
+        if ('island' in msg) p.resolve({ island: msg.island, tuning: msg.tuning });
+        else p.reject(new Error(msg.error));
       };
       this.worker.onerror = (e) => {
         for (const p of this.pending.values()) p.reject(new Error(e.message || 'generator failed'));
@@ -24,8 +34,8 @@ export class IslandClient {
     }
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.worker!.postMessage({ id, spec });
+      this.pending.set(id, { resolve, reject, onProgress });
+      this.worker!.postMessage({ id, spec, tier });
     });
   }
 }
