@@ -1,5 +1,5 @@
 const CSS = /* css */ `
-.hud { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px;
+.hud { position: fixed; z-index: 20; left: 50%; top: 12px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px;
   padding: 8px 16px; border-radius: 16px; background: #ffffffb8; backdrop-filter: blur(10px);
   box-shadow: 0 6px 24px #5a4a7a22, inset 0 0 0 1px #fff; font: 600 12px/1.2 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
   color: #3b3355; user-select: none; white-space: nowrap; }

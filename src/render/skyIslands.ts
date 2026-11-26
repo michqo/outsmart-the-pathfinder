@@ -110,6 +110,7 @@ export class SkyIslands {
       if (!e) {
         const marker = document.createElement('button');
         marker.type = 'button';
+        marker.hidden = true; // until update() places it
         marker.onclick = () => {
           const cur = this.entries.get(key(info.a));
           if (cur?.info.open) this.onPick?.(cur.info.a);

@@ -14,7 +14,7 @@ const NAMES: Partial<Record<Mat, string>> = {
 };
 
 const CSS = /* css */ `
-.hb { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center;
+.hb { position: fixed; z-index: 20; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center;
   gap: 8px; font: 600 12px/1.2 ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; color: #3b3355; user-select: none; }
 .hb button { font: inherit; color: inherit; border: 0; cursor: pointer; }
 .hb .sep { width: 1px; align-self: stretch; background: #3b335522; margin: 4px 4px; }

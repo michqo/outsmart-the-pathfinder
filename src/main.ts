@@ -504,7 +504,12 @@ const islands = new IslandClient();
  * Touch devices get smaller islands from the same seed (see PLAN.md, M8). Decided by the
  * input, not the window width, so resizing a desktop window never changes the island.
  */
-const islandCap = matchMedia('(pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
+const islandCap: number | undefined = matchMedia('(pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
+/**
+ * The island size limit in play: this device's, or the sender's when you opened an island
+ * link (so a dare is on the same island it was set on).
+ */
+let archCap: number | undefined = islandCap;
 
 // ---------------------------------------------------------------- archipelago
 
@@ -514,10 +519,10 @@ let archHere: ArchIsland | null = null;
 let archRequest = 0;
 let flight: { from: THREE.Vector3; to: THREE.Vector3; t: number; done: () => void } | null = null;
 stage.scene.add(skyIslands.group);
-skyIslands.onPick = (a) => void goToIsland(archSeed, a, true);
+skyIslands.onPick = (a) => void goToIsland(archSeed, a, true, 0, archCap);
 
 const inArchipelago = () => archHere !== null;
-const starsOn = (a: ArchIsland) => islandProgress(archSeed, a.ix, a.iz, islandCap).stars;
+const starsOn = (a: ArchIsland) => islandProgress(archSeed, a.ix, a.iz, archCap).stars;
 const archName = (a: ArchIsland) => (a.ring === 0 ? 'Home island' : `Island ${a.ix}, ${a.iz}`);
 
 /** The island you were last on in this archipelago (home if none). */
@@ -534,7 +539,7 @@ function archLevel(a: ArchIsland, spec: ReturnType<typeof archSpec>, island: Par
 
 /** Generates and surveys an island (cached surveys skip the work). */
 async function loadArchIsland(seed: number, a: ArchIsland, onProgress: (f: number) => void): Promise<Level> {
-  const spec = archSpec(seed, a, islandCap);
+  const spec = archSpec(seed, a, archCap);
   const cached = cachedTuning(spec, a.tier);
   const { island, tuning } = await islands.generate(spec, cached ? undefined : a.tier, onProgress);
   const t = cached ?? tuning!;
@@ -543,13 +548,14 @@ async function loadArchIsland(seed: number, a: ArchIsland, onProgress: (f: numbe
 }
 
 /** Window scale (as in fitStage) of an island, without generating it. */
-const windowScale = (seed: number, a: ArchIsland) => (Math.ceil((islandParams(archSpec(seed, a, islandCap)).size + 8) / 16) * 16) / 64;
+const windowScale = (seed: number, a: ArchIsland) => (Math.ceil((islandParams(archSpec(seed, a, archCap)).size + 8) / 16) * 16) / 64;
 
 /** Travels to an island: flies there over the sky when it's in view, else just loads it. */
-async function goToIsland(seed: number, a: ArchIsland, fly: boolean, dare = 0): Promise<void> {
+async function goToIsland(seed: number, a: ArchIsland, fly: boolean, dare = 0, cap = islandCap): Promise<void> {
   const req = ++archRequest;
-  if (seed !== archSeed || !archHere) fly = false;
-  if (archHere && seed === archSeed && a.ix === archHere.ix && a.iz === archHere.iz && course.level.kind === 'island') return;
+  if (seed !== archSeed || cap !== archCap || !archHere) fly = false;
+  if (!fly && archHere && seed === archSeed && cap === archCap && a.ix === archHere.ix && a.iz === archHere.iz && course.level.kind === 'island') return;
+  archCap = cap;
   let pct = -1;
   const loading = loadArchIsland(seed, a, (f) => {
     const n = Math.round(f * 100);
@@ -567,7 +573,7 @@ async function goToIsland(seed: number, a: ArchIsland, fly: boolean, dare = 0): 
   } catch (err) {
     console.error('Could not load the island', err);
     score.toast("That island couldn't be made");
-    if (offset) snapCamera(offset.negate());
+    if (offset) snapCamera(offset); // back over the old island (still drawn at the origin)
     stage.controls.enabled = true;
     return;
   }
@@ -608,6 +614,18 @@ function updateFlight(dt: number): void {
   }
 }
 
+/**
+ * Zoomed out far enough for the other islands' markers: the current island spans less than
+ * 60% of the screen's narrower side (so phones in portrait, which start further back, don't
+ * show them during normal play).
+ */
+function zoomedOut(): boolean {
+  const cam = stage.camera;
+  const dist = cam.position.distanceTo(stage.controls.target);
+  const narrow = 2 * dist * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * Math.min(1, cam.aspect);
+  return Math.max(world.sx, world.sz) / narrow < 0.6;
+}
+
 /** Moves the view by -`by` (the new island is drawn where the old one was). */
 function snapCamera(by: THREE.Vector3): void {
   stage.camera.position.sub(by);
@@ -621,6 +639,71 @@ function arriveAt(a: ArchIsland, level: Level, dare: number, flown: boolean): vo
   startLevel(level, dare);
   setArchPosition(archSeed, [a.ix, a.iz]);
   refreshSky();
+  frameRoute();
+}
+
+/** A short camera glide on arrival (target and position), so the start and flag are in view. */
+stage.controls.addEventListener('start', () => (glide = null)); // the player took the camera
+let glide: { t: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromP: THREE.Vector3; toP: THREE.Vector3 } | null = null;
+
+/**
+ * Points the camera at the start/flag route from a steep enough angle that spires and hills
+ * don't hide either end, and far enough back that both fit on screen.
+ */
+function frameRoute(): void {
+  const { camera, controls } = stage;
+  const cell = (c: Vec3i) => new THREE.Vector3(c[0] + 0.5 - world.sx / 2, c[1], c[2] + 0.5 - world.sz / 2);
+  const s = cell(bot.home), g = cell(bot.goal);
+  // Aim between the route and the island's centre: both ends in view without losing the island.
+  const toT = s.clone().add(g).multiplyScalar(0.5);
+  toT.set(toT.x * 0.6, toT.y, toT.z * 0.6);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  // At most ~50° from straight down.
+  const minY = 0.64;
+  if (dir.y < minY) {
+    const flat = Math.sqrt(Math.max(1e-6, dir.x * dir.x + dir.z * dir.z));
+    const k = Math.sqrt(1 - minY * minY) / flat;
+    dir.set(dir.x * k, minY, dir.z * k);
+  }
+  // Turn around the route until nothing hides the bot or the flag (nearest heading first).
+  const flat = Math.atan2(dir.z, dir.x);
+  const ring = Math.sqrt(1 - dir.y * dir.y);
+  const turned = new THREE.Vector3();
+  for (const step of [0, 1, -1, 2, -2, 3, -3, 4]) {
+    const yaw = flat + (step * Math.PI) / 4;
+    turned.set(Math.cos(yaw) * ring, dir.y, Math.sin(yaw) * ring);
+    if (seen(s, turned) && seen(g, turned)) {
+      dir.copy(turned);
+      break;
+    }
+  }
+  const span = Math.max(12, s.distanceTo(toT), g.distanceTo(toT)) * 2.4;
+  const fit = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * Math.min(1, camera.aspect));
+  const dist = Math.min(controls.maxDistance, Math.max(fit, camera.position.distanceTo(controls.target)));
+  glide = { t: 0, fromT: controls.target.clone(), toT, fromP: camera.position.clone(), toP: toT.clone().addScaledVector(dir, dist) };
+}
+
+/** True when a ray from just above `p` towards the camera (along `dir`) clears the terrain. */
+function seen(p: THREE.Vector3, dir: THREE.Vector3): boolean {
+  const q = new THREE.Vector3();
+  for (let t = 1; t < 90; t += 0.5) {
+    q.copy(p).addScaledVector(dir, t);
+    const x = Math.floor(q.x + world.sx / 2), y = Math.floor(q.y + 0.8), z = Math.floor(q.z + world.sz / 2);
+    if (y >= world.sy) return true;
+    if (!world.contains(x, y, z)) continue;
+    const m = world.get(x, y, z);
+    if (m !== Mat.Air && m !== Mat.Water) return false;
+  }
+  return true;
+}
+
+function updateGlide(dt: number): void {
+  if (!glide) return;
+  glide.t = Math.min(1, glide.t + dt / 0.9);
+  const e = 1 - (1 - glide.t) ** 3;
+  stage.controls.target.lerpVectors(glide.fromT, glide.toT, e);
+  stage.camera.position.lerpVectors(glide.fromP, glide.toP, e);
+  if (glide.t >= 1) glide = null;
 }
 
 function leaveArchipelago(): void {
@@ -643,7 +726,7 @@ function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void 
   for (const a of list)
     infos.set(`${a.ix},${a.iz}`, {
       a,
-      radius: archRadius(archSpec(seed, a, islandCap)),
+      radius: archRadius(archSpec(seed, a, archCap)),
       open: isOpen(seed, a, starsOf),
       stars: starsOf(a),
       current: a.ix === here.ix && a.iz === here.iz,
@@ -652,7 +735,7 @@ function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void 
   void (async () => {
     for (const a of missing) {
       try {
-        const lod = await islands.lod(archSpec(seed, a, islandCap));
+        const lod = await islands.lod(archSpec(seed, a, archCap));
         if (archSeed !== seed || !archHere) return;
         skyIslands.provide(a, lod);
       } catch (err) {
@@ -681,7 +764,7 @@ function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void 
 function islandResult(a: ArchIsland, stars: number, nodes: number): void {
   const had = starsOn(a);
   const before = new Map(islandsAround(archSeed, a.ix, a.iz, 2).map((b) => [`${b.ix},${b.iz}`, starsOn(b)]));
-  recordIsland(archSeed, a.ix, a.iz, islandCap, nodes, stars);
+  recordIsland(archSeed, a.ix, a.iz, archCap, nodes, stars);
   if (had > 0 || stars === 0) return;
   const opened = neighbours(archSeed, a).filter((b) => !isOpen(archSeed, b, (c) => (c.ix === a.ix && c.iz === a.iz ? 0 : starsOn(c)))).length;
   refreshSky(a, before);
@@ -698,7 +781,7 @@ function startArchipelago(): void {
   const target = (pos && islandAt(archSeed, pos.at[0], pos.at[1])) || islandAt(archSeed, 0, 0)!;
   const home = islandAt(archSeed, 0, 0)!;
   for (const a of target === home ? [home] : [target, home]) {
-    const spec = archSpec(archSeed, a, islandCap);
+    const spec = archSpec(archSeed, a, archCap);
     let tuning = cachedTuning(spec, a.tier);
     if (!tuning && a !== home) continue;
     const island = generateIsland(spec);
@@ -771,7 +854,7 @@ async function share(): Promise<void> {
   const challenge = LEVELS.includes(level) || level === HEURISTIC_TRAP;
   const dare = level === HEURISTIC_TRAP ? 0 : challenge ? bestFor(level.id) : lastScore;
   if (level.kind === 'island' && archHere) return copyLink(await encodeIsland({
-    seed: archSeed, ix: archHere.ix, iz: archHere.iz, cap: islandCap ?? 0, dare: bestFor(level.id),
+    seed: archSeed, ix: archHere.ix, iz: archHere.iz, cap: archCap ?? 0, dare: bestFor(level.id),
     genVersion: GEN_VERSION, tuneVersion: TUNE_VERSION,
   }), bestFor(level.id));
   if (!challenge && !sameDims(world, DEFAULT_DIMS)) {
@@ -817,7 +900,9 @@ async function openSharedCourse(): Promise<boolean> {
       const a = islandAt(i.seed, i.ix, i.iz);
       if (!a) throw new Error('no island there');
       if (i.genVersion !== GEN_VERSION || i.tuneVersion !== TUNE_VERSION) score.toast('This link is from another version of the game: the island may differ');
-      await goToIsland(i.seed, a, false, i.dare);
+      const cap = i.cap || undefined;
+      if (cap !== islandCap) score.toast(cap ? 'Playing the smaller, touch-screen size of this island, as your friend did' : 'Playing the full size of this island, as your friend did');
+      await goToIsland(i.seed, a, false, i.dare, cap);
       return true;
     }
     const s = link.level;
@@ -887,9 +972,9 @@ stage.renderer.setAnimationLoop((time) => {
   follow.update(dt);
   sky.update(t);
   updateFlight(dt);
+  updateGlide(dt);
   stage.controls.update();
-  const far = stage.camera.position.distanceTo(stage.controls.target) > 125 * stageScale;
-  skyIslands.update(dt, stage.camera, inArchipelago() && !flight && !busy && !duelActive && far);
+  skyIslands.update(dt, stage.camera, inArchipelago() && !flight && !busy && !duelActive && zoomedOut());
   if (water) water.time.value = t;
   if (settings.quality === 'high') post.render(dt);
   else stage.renderer.render(stage.scene, stage.camera);

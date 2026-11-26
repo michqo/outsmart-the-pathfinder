@@ -67,9 +67,11 @@ export interface PanelHandlers {
 }
 
 export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers): Pane {
-  const pane = new Pane({ title: 'Outsmart the Pathfinder', expanded: false });
+  // Players get the settings; the tuning, stats and debug tools are for development (or ?debug).
+  const dev = import.meta.env.DEV || new URLSearchParams(location.search).has('debug');
+  const pane = new Pane({ title: dev ? 'Outsmart the Pathfinder' : 'Settings', expanded: false });
 
-  const perf = pane.addFolder({ title: 'Performance' });
+  const perf = pane.addFolder({ title: 'Performance', hidden: !dev });
   perf.addBinding(stats, 'fps', { readonly: true, view: 'graph', min: 0, max: 130, label: 'fps' });
   perf.addBinding(stats, 'fps', { readonly: true, format: (v: number) => v.toFixed(0), label: '' });
   perf.addBinding(stats, 'frameMs', { readonly: true, format: (v: number) => v.toFixed(2), label: 'frame ms' });
@@ -93,7 +95,7 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   const models = { ...Object.fromEntries(CHARACTERS.map((c) => [c.name, c.id])), 'Boxy bot': BOT_MODELS.Boxy, 'Bulb bot': BOT_MODELS.Bulb };
   search.addBinding(settings, 'botModel', { label: 'character', options: models }).on('change', h.onBotModel);
 
-  const look = pane.addFolder({ title: 'Look', expanded: false });
+  const look = pane.addFolder({ title: 'Look', expanded: false, hidden: !dev });
   const paletteOptions = Object.fromEntries(Object.entries(PALETTES).map(([k, p]) => [p.name, k]));
   look.addBinding(settings, 'palette', { options: paletteOptions }).on('change', h.onPalette);
   look.addBinding(settings, 'grassStyle', { label: 'grass', options: GRASS_STYLES }).on('change', h.onPalette);
@@ -104,7 +106,7 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   look.addBinding(settings, 'shadows').on('change', h.onShadows);
   look.addBinding(settings, 'exposure', { min: 0.5, max: 1.6, step: 0.01 }).on('change', h.onExposure);
 
-  const debug = pane.addFolder({ title: 'Debug', expanded: false });
+  const debug = pane.addFolder({ title: 'Debug', expanded: false, hidden: !dev });
   debug.addBinding(settings, 'wireframe').on('change', h.onWireframe);
   debug.addBinding(settings, 'seed', { min: 1, max: 99, step: 1 });
   debug.addButton({ title: 'Regenerate island' }).on('click', h.onRegenerate);
