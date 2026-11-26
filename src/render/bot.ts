@@ -233,7 +233,7 @@ function realisticMats(): BotMats {
     accent: new THREE.MeshPhysicalMaterial({ color: CORAL, metalness: 0.85, roughness: 0.3, clearcoat: 0.4 }),
     // Brushed dark metal (anisotropic highlights) for legs, pupil and antenna.
     ink: new THREE.MeshPhysicalMaterial({ color: 0x3b3748, metalness: 0.9, roughness: 0.34, anisotropy: 0.8 }),
-    // The lens: glass over a soft glow, picked up by bloom.
+    // The lens: glass over a soft glow, kept bright by its emissive.
     eyeWhite: new THREE.MeshPhysicalMaterial({
       color: 0xf2fdff,
       emissive: 0x9ff0ff,

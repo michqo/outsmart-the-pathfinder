@@ -30,7 +30,6 @@ import { Hotbar } from './ui/hotbar';
 import { Hud } from './ui/hud';
 import { createPanel, type Settings, type Stats } from './ui/panel';
 import { loadAssets, type Assets } from './render/assets';
-import { PostFX } from './render/post';
 import { FollowCam } from './render/followCam';
 import { LoadingScreen } from './ui/loading';
 import { ignoreGameShortcut } from './ui/modal';
@@ -43,9 +42,7 @@ import { generateTestIsland } from './world/testIsland';
 import { sameDims, World, type Dims } from './world/world';
 
 const settings: Settings = {
-  quality: 'high',
-  envIntensity: 1.0,
-  bloom: 0.3,
+  envIntensity: 0.45,
   realism: 0.5,
   clouds: 0.45,
   wind: 1,
@@ -185,16 +182,19 @@ let terrain: TerrainMaterial | null = null;
 let water: WaterMaterial | null = null;
 const voxels = new VoxelTexture(world);
 chunks.onRebuilt = () => voxels.touch();
-const post = new PostFX(stage.renderer, stage.scene, stage.camera);
 const realistic = () => assets !== null;
-const DEFAULT_SUN = new THREE.Vector3(45, 70, 28).normalize();
+/**
+ * The daytime sun: high and off to the left of the default view, so shadows fall across the
+ * island where you can see them rather than straight behind each block.
+ */
+const DAY_SUN = new THREE.Vector3(-0.5, 0.66, 0.62).normalize();
 
 /** The current course's time of day (see timeOfDay.ts). */
 let timeOfDay: TimeOfDay = 'day';
 
-/** Where the sun (or moon) stands for a time of day; null = the look's own sun. */
-function timedSun(): THREE.Vector3 | null {
-  if (timeOfDay === 'day') return null;
+/** Where the sun (or moon) stands for the course's time of day. */
+function timedSun(): THREE.Vector3 {
+  if (timeOfDay === 'day') return DAY_SUN.clone();
   const t = TIME_LIGHT[timeOfDay];
   const flat = Math.sqrt(1 - t.elevation * t.elevation);
   return new THREE.Vector3(Math.cos(t.bearing) * flat, t.elevation, Math.sin(t.bearing) * flat);
@@ -209,7 +209,7 @@ function applyPalette(): void {
   chunks.setRealistic(real ? { terrain: terrain!.material, water: water!.material } : null);
   chunks.setPalette(p, settings.grassStyle);
   sky.setPalette(p);
-  sky.setReal(real ? (assets!.env as THREE.DataTexture) : null, settings.envIntensity, real ? (timed ?? assets!.sunDir) : undefined);
+  sky.setReal(real ? (assets!.env as THREE.DataTexture) : null, 1, real ? timed : undefined);
   skyIslands.setPalette(p, settings.grassStyle);
   skyIslands.setHaze(sky.hazeColor());
   stage.scene.environment = real ? assets!.env : null;
@@ -217,12 +217,12 @@ function applyPalette(): void {
   stage.renderer.toneMappingExposure = settings.exposure * tl.exposure;
   stage.hemi.visible = !real;
   if (real) {
-    // Light comes from where the sun is in the HDRI (kept high enough for readable shadows).
-    const d = (timed ?? assets!.sunDir).clone();
-    d.y = Math.max(d.y, timed ? 0.22 : 0.55);
+    // The sky image only fills in ambient light, kept low so the sun's shadows read.
+    const d = timed.clone();
+    d.y = Math.max(d.y, 0.22);
     stage.sun.position.copy(stage.sun.target.position).addScaledVector(d.normalize(), 85);
     stage.sun.color.setHex(0xfff1df).multiply(new THREE.Color(tl.sunColor));
-    stage.sun.intensity = 2.6 * tl.sun;
+    stage.sun.intensity = 4 * tl.sun;
     terrain!.uniforms.uPlaced.value.setHex(p.blocks.placed.top);
     terrain!.uniforms.uCrystal.value.setHex(p.blocks.crystal.side);
     const u = terrain!.uniforms;
@@ -233,7 +233,7 @@ function applyPalette(): void {
     u.uStone.value.setHex(p.blocks.stone.side);
     (['sand', 'mud', 'timber', 'leaves', 'magma', 'snow'] as const).forEach((k, i) => u.uExtra.value[i].setHex(k === 'timber' ? blockFaces(p, k).side : blockFaces(p, k).top));
   } else {
-    const d = timed ? timed.clone().setY(Math.max(timed.y, 0.22)).normalize() : DEFAULT_SUN;
+    const d = timed.clone().setY(Math.max(timed.y, 0.22)).normalize();
     stage.sun.position.copy(stage.sun.target.position).addScaledVector(d, 85);
     stage.sun.color.setHex(p.sun.color).multiply(new THREE.Color(tl.sunColor));
     stage.sun.intensity = p.sun.intensity * tl.sun;
@@ -247,32 +247,13 @@ function applyPalette(): void {
   rebuildUnderside();
 }
 
-function applyQuality(): void {
-  // High: full post chain. Medium: direct render, lighter shader, smaller shadow map.
-  const high = settings.quality === 'high';
-  const r = stage.renderer;
-  r.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : 1.5));
-  r.setSize(window.innerWidth, window.innerHeight);
-  const size = high ? 4096 : 2048;
-  const shadow = stage.sun.shadow;
-  if (shadow.mapSize.x !== size) {
-    shadow.mapSize.set(size, size);
-    shadow.map?.dispose();
-    shadow.map = null;
-  }
-  terrain?.setLowQuality(!high);
-  post.resize();
-}
-
 function applyMeshOptions(): void {
-  // Realistic + High already gets screen-space AO, so the baked corner AO is softened.
-  const s = settings.aoStrength * (realistic() && settings.quality === 'high' ? 0.7 : 1);
+  const s = settings.aoStrength;
   chunks.opts.ao = settings.ao;
   chunks.opts.aoCurve = [1 - s, 1 - s * 0.62, 1 - s * 0.3, 1];
   world.markAllDirty();
 }
 
-applyQuality();
 applyPalette();
 
 function upgradeTerrain(): void {
@@ -280,7 +261,6 @@ function upgradeTerrain(): void {
     terrain = createTerrainMaterial(a, voxels, sky.cloud, stage.island.position, chunks.tint);
     water = createWaterMaterial();
     assets = a;
-    applyQuality();
     applyPalette();
   }).catch((err) => {
     console.error('Terrain textures failed to load; keeping the simple look.', err);
@@ -318,12 +298,7 @@ const corner = new Corner(sfx.muted, {
 let wasBusy = false;
 
 createPanel(settings, stats, {
-  onQuality: () => {
-    applyQuality();
-    applyMeshOptions();
-  },
   onEnvIntensity: applyPalette,
-  onBloom: () => (post.bloom.strength = settings.bloom),
   onClouds: () => {
     sky.cloud.uCover.value = settings.clouds;
     sky.cloud.uWind.value.set(4.5, 1.6).multiplyScalar(settings.wind);
@@ -849,7 +824,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Dev-only handle for poking at the scene from the console.
-if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, sky, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets, follow, history, arch: { goToIsland, islandResult, here: () => archHere, seed: () => archSeed } } });
+if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, sky, settings, editor, bot, applyPalette, getAssets: () => assets, follow, history, arch: { goToIsland, islandResult, here: () => archHere, seed: () => archSeed } } });
 
 // ---------------------------------------------------------------- loop
 
@@ -858,9 +833,23 @@ let frames = 0;
 let fpsTimer = 0;
 let frameMsAcc = 0;
 
+/**
+ * Frame cap: 60 fps while something is happening (input in the last few seconds, the bot or a
+ * duel running, the camera flying), 30 fps when the island just sits there. The wind, water
+ * and drifting particles still move at 30, and a laptop stays quiet. 120 Hz screens would
+ * otherwise double the work for nothing.
+ */
+let lastFrame = -Infinity;
+let lastInput = 0;
+for (const e of ['pointerdown', 'pointermove', 'wheel', 'keydown'])
+  window.addEventListener(e, () => (lastInput = performance.now()), { passive: true, capture: true });
+
 const loading = new LoadingScreen();
 let firstFrame = true;
 stage.renderer.setAnimationLoop((time) => {
+  const active = time - lastInput < 3000 || wasBusy || flight !== null || glide !== null;
+  if (time - lastFrame < (active ? 1000 / 60 : 1000 / 30) - 2) return;
+  lastFrame = time;
   const t0 = performance.now();
   timer.update(time);
   const dt = timer.getDelta();
@@ -884,9 +873,7 @@ stage.renderer.setAnimationLoop((time) => {
   stage.controls.update();
   skyIslands.update(dt, stage.camera, inArchipelago() && !flight && !busy && !duelActive && zoomedOut());
   if (water) water.time.value = t;
-  if (terrain) terrain.uniforms.uWind.value = t * settings.wind;
-  if (settings.quality === 'high') post.render(dt);
-  else stage.renderer.render(stage.scene, stage.camera);
+  stage.renderer.render(stage.scene, stage.camera);
 
   if (firstFrame) {
     firstFrame = false;

@@ -36,7 +36,7 @@ export interface TimeLight {
 
 export const TIME_LIGHT: Record<TimeOfDay, TimeLight> = {
   day: { elevation: 0, bearing: 0, sunColor: 0xffffff, sun: 1, skyTint: 0xffffff, sky: 1, ambient: 1, stars: 0, lanterns: 0, exposure: 1 },
-  dawn: { elevation: 0.26, bearing: 1.2, sunColor: 0xffc79e, sun: 0.8, skyTint: 0xffc6b4, sky: 0.85, ambient: 0.75, stars: 0.12, lanterns: 0.35, exposure: 1.05 },
+  dawn: { elevation: 0.26, bearing: 2.1, sunColor: 0xffc79e, sun: 0.8, skyTint: 0xffc6b4, sky: 0.85, ambient: 0.75, stars: 0.12, lanterns: 0.35, exposure: 1.05 },
   dusk: { elevation: 0.2, bearing: -1.9, sunColor: 0xff9e70, sun: 0.7, skyTint: 0xf0a088, sky: 0.7, ambient: 0.62, stars: 0.3, lanterns: 0.7, exposure: 1.08 },
   night: { elevation: 0.62, bearing: 2.6, sunColor: 0xa9bcff, sun: 0.28, skyTint: 0x4a5a9a, sky: 0.2, ambient: 0.3, stars: 1, lanterns: 1, exposure: 1.2 },
 };

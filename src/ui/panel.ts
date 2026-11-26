@@ -3,13 +3,8 @@ import { GRASS_STYLES, PALETTES, type GrassStyle } from '../palette';
 import type { BotModel } from '../render/bot';
 import { VIZ_STYLES, type VizStyle } from '../render/searchViz';
 
-export const QUALITIES = { High: 'high', Medium: 'medium' } as const;
-export type Quality = (typeof QUALITIES)[keyof typeof QUALITIES];
-
 export interface Settings {
-  quality: Quality;
   envIntensity: number;
-  bloom: number;
   realism: number;
   clouds: number;
   wind: number;
@@ -36,9 +31,7 @@ export interface Stats {
 }
 
 export interface PanelHandlers {
-  onQuality(): void;
   onEnvIntensity(): void;
-  onBloom(): void;
   onRealism(): void;
   onClouds(): void;
   onPalette(): void;
@@ -52,7 +45,7 @@ export interface PanelHandlers {
 }
 
 export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers): Pane {
-  // Players get quality and the search view; the look tuning, stats and debug are for development (or ?debug).
+  // Players get the search view; the look tuning, stats and debug are for development (or ?debug).
   const dev = import.meta.env.DEV || new URLSearchParams(location.search).has('debug');
   const pane = new Pane({ title: dev ? 'Outsmart the Pathfinder' : 'Settings', expanded: false });
 
@@ -64,7 +57,6 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   perf.addBinding(stats, 'remeshMs', { readonly: true, format: (v: number) => v.toFixed(2), label: 'remesh ms' });
   perf.addBinding(stats, 'undersideMs', { readonly: true, format: (v: number) => v.toFixed(1), label: 'underside ms' });
 
-  pane.addBinding(settings, 'quality', { options: QUALITIES }).on('change', h.onQuality);
   pane.addBinding(settings, 'revealSeconds', { label: 'search reveal (s)', min: 0, max: 6, step: 0.1 }).on('change', h.onReveal);
   pane.addBinding(settings, 'vizStyle', { label: 'search view', options: VIZ_STYLES }).on('change', h.onVizStyle);
 
@@ -76,7 +68,6 @@ export function createPanel(settings: Settings, stats: Stats, h: PanelHandlers):
   look.addBinding(settings, 'realism', { label: 'texture realism', min: 0, max: 1, step: 0.01 }).on('change', h.onRealism);
   look.addBinding(settings, 'clouds', { label: 'cloud cover', min: 0, max: 1, step: 0.01 }).on('change', h.onClouds);
   look.addBinding(settings, 'wind', { min: 0, max: 4, step: 0.05 }).on('change', h.onClouds);
-  look.addBinding(settings, 'bloom', { label: 'bloom (High)', min: 0, max: 1, step: 0.01 }).on('change', h.onBloom);
   look.addBinding(settings, 'ao', { label: 'AO' }).on('change', h.onMeshOptions);
   look.addBinding(settings, 'aoStrength', { label: 'AO strength', min: 0, max: 0.8, step: 0.01 }).on('change', h.onMeshOptions);
   look.addBinding(settings, 'jitter', { label: 'block jitter', min: 0, max: 0.25, step: 0.005 }).on('change', h.onJitter);

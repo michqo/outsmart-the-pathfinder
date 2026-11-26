@@ -71,15 +71,6 @@ uniform vec3 uExtra[6];
 /** 0 = soft palette colours, 1 = full photo textures. */
 uniform float uRealism;
 uniform vec3 uGrassTop, uGrassSide, uSoil, uStone;
-/** Seconds, for the wind. */
-uniform float uWind;
-
-const vec2 WIND_DIR = vec2(0.8, 0.6);
-/** Gusts rolling across the island with the wind: 0 = calm, 1 = the crest of a gust. */
-float windGust(vec2 xz) {
-  float g = sin(dot(xz, WIND_DIR) * 0.42 - uWind * 1.6 + vnoise(xz * 0.11) * 4.0) * 0.5 + 0.5;
-  return g * g;
-}
 
 int voxAt(ivec3 c) {
   ivec3 n = textureSize(tVox, 0); // (sx, sz, sy)
@@ -90,12 +81,11 @@ bool solidM(int m) { return m != 0 && m != 5; }
 
 const mat2 ROT = mat2(0.8, -0.6, 0.6, 0.8);
 
-/** One PBR layer; on High a second rotated, rescaled sample is blended in by noise to hide tiling. */
+/** One PBR layer, with a second rotated, rescaled sample blended in by noise to hide tiling. */
 void sampleLayer(float layer, vec2 uv, out vec3 alb, out vec3 nT, out vec3 arm) {
   alb = texture(tAlb, vec3(uv, layer)).rgb;
   nT = texture(tNor, vec3(uv, layer)).xyz * 2.0 - 1.0;
   arm = texture(tArm, vec3(uv, layer)).xyz;
-#ifndef LOW_QUALITY
   vec2 uv2 = ROT * uv * 0.61 + vec2(0.37, 0.71);
   float k = smoothstep(0.25, 0.75, vnoise(uv * 0.8 + layer * 7.0));
   vec3 n2 = texture(tNor, vec3(uv2, layer)).xyz * 2.0 - 1.0;
@@ -103,7 +93,6 @@ void sampleLayer(float layer, vec2 uv, out vec3 alb, out vec3 nT, out vec3 arm) 
   alb = mix(alb, texture(tAlb, vec3(uv2, layer)).rgb, k);
   nT = mix(nT, n2, k);
   arm = mix(arm, texture(tArm, vec3(uv2, layer)).xyz, k);
-#endif
   nT = normalize(vec3(nT.xy * uNormalStrength, nT.z));
 }
 `;
@@ -140,10 +129,6 @@ const TERRAIN_SURFACE = /* glsl */ `
       float dry = smoothstep(0.5, 0.9, vnoise(vVox.xz * 0.06 + 3.0));
       sAlb = mix(greener(sAlb), sAlb, dry * 0.6);
       sFlat = uGrassTop;
-      // Wind over the grass: blades lean with each gust (normal) and show their paler side.
-      float gust = windGust(vVox.xz);
-      sNT = normalize(sNT + vec3(WIND_DIR.x, -WIND_DIR.y, 0.0) * gust * 0.45);
-      sAlb *= 1.0 + 0.12 * gust;
     } else if (sN.y < -0.5) {
       sampleLayer(1.0, tuv, sAlb, sNT, sArm);
       sFlat = uSoil;
@@ -189,24 +174,12 @@ const TERRAIN_SURFACE = /* glsl */ `
     vec3 base = uExtra[sMat - 7];
     float layer = sMat == 10 ? 0.0 : (sMat == 11 || sMat == 12) ? 2.0 : 1.0;
     vec2 luv = tuv * (sMat == 7 ? 1.6 : 1.0);
-    float rustle = 0.0;
-    if (sMat == 10) {
-      // Leaves rustle: each clump shivers on its own phase, harder in a gust.
-      float ph = vnoise(vVox.xz * 0.35 + vVox.y * 0.7) * 6.28;
-      float gust = 0.35 + windGust(vVox.xz);
-      rustle = (sin(uWind * 2.3 + ph) * 0.6 + sin(uWind * 3.9 + ph * 1.7) * 0.4) * gust;
-      luv += vec2(sin(uWind * 1.9 + ph), cos(uWind * 1.4 + ph)) * 0.035 * gust;
-    }
     sampleLayer(layer, luv, sAlb, sNT, sArm);
     float l = dot(sAlb, vec3(0.3, 0.59, 0.11));
     sAlb = base * (0.62 + 0.8 * l) * macro;
     if (sMat == 7) sNT = normalize(vec3(sNT.xy * 0.5, sNT.z));
     if (sMat == 12) { sAlb = base * (0.9 + 0.15 * l); sNT = normalize(vec3(sNT.xy * 0.3, 1.0)); }
     if (sMat == 8) sArm = vec3(1.0, 0.35, 0.0); // wet mud
-    if (sMat == 10) {
-      sNT = normalize(sNT + vec3(rustle * 0.35, rustle * 0.2, 0.0));
-      sAlb *= 0.94 + 0.12 * (rustle * 0.5 + 0.5);
-    }
     if (sMat == 9 && !sTop) sAlb *= 0.82 + 0.18 * smoothstep(-0.3, 0.9, sin(sUv.x * 7.0 + vnoise(sUv * vec2(1.0, 6.0)) * 3.0));
     if (sMat == 9 && sTop) sAlb *= 0.8 + 0.25 * smoothstep(0.2, 0.9, fract(length(fract(sUv) - 0.5) * 6.0));
     if (sMat == 11) {
@@ -259,10 +232,7 @@ export interface TerrainMaterial {
     uSoil: { value: THREE.Color };
     uStone: { value: THREE.Color };
     uExtra: { value: THREE.Color[] };
-    /** Seconds since start: drives the grass and leaf wind. */
-    uWind: { value: number };
   };
-  setLowQuality(low: boolean): void;
 }
 
 /**
@@ -289,7 +259,6 @@ export function createTerrainMaterial(
     uSoil: { value: new THREE.Color() },
     uStone: { value: new THREE.Color() },
     uExtra: { value: Array.from({ length: 6 }, () => new THREE.Color()) },
-    uWind: { value: 0 },
   };
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   material.onBeforeCompile = (shader) => {
@@ -332,11 +301,6 @@ export function createTerrainMaterial(
   return {
     material,
     uniforms,
-    setLowQuality(low) {
-      if (low) material.defines = { LOW_QUALITY: '' };
-      else material.defines = {};
-      material.needsUpdate = true;
-    },
   };
 }
 
