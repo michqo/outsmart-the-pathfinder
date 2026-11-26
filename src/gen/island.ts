@@ -4,13 +4,14 @@ import { CS, type Dims } from '../world/world';
 import { drainage, erode, EROSION } from './hydro';
 
 /**
- * Island generator v2: shape → heightmap → erosion → biomes → lakes and rivers → voxels.
+ * Island generator v3: shape → heightmap → erosion → biomes → lakes and rivers → voxels →
+ * caves, ledges, arches and ruins → crystals and trees.
  *
  * Deterministic per (seed, ix, iz, size cap, GEN_VERSION): only exactly-specified float
  * operations (no sin/exp/pow/hypot, whose last bits differ between browsers). Bump
  * GEN_VERSION whenever the output changes, so saved progress and links can tell.
  */
-export const GEN_VERSION = 2;
+export const GEN_VERSION = 3;
 
 export const ISLAND_SIZE = { min: 32, max: 112 } as const;
 const SY = 48;
@@ -53,7 +54,7 @@ export interface Island {
   data: Uint8Array;
   /** Biome per column (x + z*sx). */
   biome: Uint8Array;
-  stats: { land: number; lake: number; river: number; biomes: number[]; ms: number };
+  stats: { land: number; lake: number; river: number; biomes: number[]; caves: number; arches: number; ruins: number; ms: number };
 }
 
 /** Per-island character from the seed: size, relief, and climate leanings. */
@@ -218,6 +219,8 @@ export function generateIsland(spec: IslandSpec): Island {
   const data = new Uint8Array(W * SY * W);
   const put = (x: number, y: number, z: number, m: Mat) => (data[x + z * W + y * W * W] = m);
   const biomeCount = new Array<number>(BIOME_NAMES.length).fill(0);
+  /** Lowest voxel per column (caves never cut into the island's underside). */
+  const bottomOf = new Int16Array(N).fill(-1);
   for (let z = 0; z < W; z++)
     for (let x = 0; x < W; x++) {
       const i = x + z * W;
@@ -228,6 +231,7 @@ export function generateIsland(spec: IslandSpec): Island {
       const wet = water[i] >= 0;
       const thick = 3 + Math.floor(Math.min(1, mask[i] * 1.6) * 16 + fbm(x * 0.1, z * 0.1, sub(10), 2) * 5);
       const bottom = Math.max(1, g - thick);
+      bottomOf[i] = bottom;
       for (let y = bottom; y <= g; y++) put(x, y, z, layer(b, g - y, y, wet, x, z, sub(11)));
       if (!wet) continue;
       if (b === Biome.Volcanic) {
@@ -240,7 +244,15 @@ export function generateIsland(spec: IslandSpec): Island {
       for (let y = g + 1; y <= water[i]; y++) put(x, y, z, Mat.Water);
     }
 
-  // 7. Crystal fields: spires and broken crystal walls (crystal can't be dug).
+  // 7. Deeper islands: caves, rock ledges, natural arches and ruins.
+  const at = (x: number, y: number, z: number) => data[x + z * W + y * W * W];
+  const deep = { land, ground, water, bottomOf, biome, W, put, at, sub };
+  const caves = carveCaves(deep, landCount);
+  addLedges(deep);
+  const arches = addArches(deep, landCount);
+  const ruins = addRuins(deep, landCount);
+
+  // 8. Crystal fields: spires and broken crystal walls (crystal can't be dug).
   const cr = rng(sub(12));
   for (let z = 2; z < W - 2; z++)
     for (let x = 2; x < W - 2; x++) {
@@ -254,7 +266,7 @@ export function generateIsland(spec: IslandSpec): Island {
       for (let y = g + 1; y <= Math.min(SY - 3, g + tall); y++) put(x, y, z, Mat.Crystal);
     }
 
-  // 8. Forests: trees on a jittered 5-voxel grid (timber trunks, leafy canopies the bot
+  // 9. Forests: trees on a jittered 5-voxel grid (timber trunks, leafy canopies the bot
   // can push through), and volcanic vents.
   // Canopies stay over land, so nothing hangs past the coast.
   const empty = (x: number, y: number, z: number) => x >= 0 && z >= 0 && x < W && z < W && land[x + z * W] === 1 && y < SY - 2 && data[x + z * W + y * W * W] === Mat.Air;
@@ -266,7 +278,7 @@ export function generateIsland(spec: IslandSpec): Island {
       if (biome[i] !== Biome.Forest || water[i] >= 0 || hash2(gx, gz, sub(22)) > 0.75) continue;
       const g = ground[i];
       const tall = 3 + Math.floor(hash2(gx, gz, sub(23)) * 3);
-      if (g + tall + 2 >= SY - 3) continue;
+      if (g + tall + 2 >= SY - 3 || !empty(x, g + 1, z) || at(x, g, z) === Mat.Air) continue;
       for (let y = g + 1; y <= g + tall; y++) put(x, y, z, Mat.Timber);
       const top = g + tall;
       for (let dy = -1; dy <= 2; dy++) {
@@ -292,8 +304,239 @@ export function generateIsland(spec: IslandSpec): Island {
     dims,
     data,
     biome,
-    stats: { land: landCount, lake, river, biomes: biomeCount, ms: performance.now() - t0 },
+    stats: { land: landCount, lake, river, biomes: biomeCount, caves, arches, ruins, ms: performance.now() - t0 },
   };
+}
+
+/** What the deeper-island passes need: the column tables and voxel access. */
+interface Deep {
+  land: Uint8Array;
+  /** Surface height per column; kept up to date when a pass opens a column to the sky. */
+  ground: Int16Array;
+  water: Int16Array;
+  bottomOf: Int16Array;
+  biome: Uint8Array;
+  W: number;
+  put: (x: number, y: number, z: number, m: Mat) => void;
+  at: (x: number, y: number, z: number) => number;
+  sub: (k: number) => number;
+}
+
+const ROCKY: number[] = [Biome.Highlands, Biome.Badlands, Biome.Snowy, Biome.Volcanic];
+
+/**
+ * Caves: tunnels that wander into the hills from cave mouths on the slopes, about 3 voxels
+ * tall so the bot can walk them, sometimes widening into a chamber or forking. They stay
+ * two voxels clear of the underside and keep a two-voxel roof under water and lava.
+ * Returns how many voxels were dug out.
+ */
+function carveCaves(d: Deep, landCount: number): number {
+  const { land, ground, water, bottomOf, W, put, at, sub } = d;
+  const rand = rng(sub(30));
+  const want = Math.round(landCount / 800);
+  let carved = 0;
+  const carve = (cx: number, cy: number, cz: number, r2: number) => {
+    const r = r2 > 3 ? 2 : 1;
+    const x0 = Math.round(cx), y0 = Math.round(cy), z0 = Math.round(cz);
+    for (let dy = -r; dy <= r; dy++)
+      for (let dz = -r; dz <= r; dz++)
+        for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dy * dy + dz * dz > r2) continue;
+          const x = x0 + dx, y = y0 + dy, z = z0 + dz;
+          if (x < 3 || z < 3 || x >= W - 3 || z >= W - 3) continue;
+          const i = x + z * W;
+          if (!land[i] || y <= bottomOf[i] + 1 || y > ground[i]) continue;
+          if (water[i] >= 0 && y >= ground[i] - 1) continue;
+          if (at(x, y, z) === Mat.Air) continue;
+          put(x, y, z, Mat.Air);
+          carved++;
+          if (y === ground[i]) {
+            // Opened to the sky: the column's surface is now the next solid voxel down.
+            let g = y - 1;
+            while (g > bottomOf[i] && at(x, g, z) === Mat.Air) g--;
+            ground[i] = g;
+          }
+        }
+  };
+  const worm = (x: number, y: number, z: number, dx: number, dz: number, steps: number, branch: boolean) => {
+    let dy = -0.08;
+    for (let s = 0; s < steps; s++) {
+      const chamber = rand() < 0.04;
+      carve(x, y, z, chamber ? 4.5 : 2.1);
+      // Wander: turn a little, drift up or down gently (walkable slopes).
+      dx += (rand() - 0.5) * 0.7;
+      dz += (rand() - 0.5) * 0.7;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      dx /= len;
+      dz /= len;
+      dy = Math.max(-0.3, Math.min(0.3, dy + (rand() - 0.5) * 0.16));
+      x += dx;
+      z += dz;
+      y += dy;
+      const ix = Math.round(x), iz = Math.round(z);
+      if (ix < 4 || iz < 4 || ix >= W - 4 || iz >= W - 4 || !land[ix + iz * W]) return;
+      // Keep inside the rock: rise if near the underside, sink if about to break the surface.
+      const i = ix + iz * W;
+      if (y < bottomOf[i] + 4) dy = Math.abs(dy) + 0.1;
+      if (y > ground[i] - 2 && s > 4) dy = -Math.abs(dy) - 0.1;
+      if (branch && s === Math.floor(steps / 2)) worm(x, y, z, -dz, dx, Math.floor(steps * 0.6), false);
+    }
+  };
+  let dug = 0;
+  for (let t = 0; t < want * 80 && dug < want; t++) {
+    const x = 6 + Math.floor(rand() * (W - 12)), z = 6 + Math.floor(rand() * (W - 12));
+    const i = x + z * W;
+    if (!land[i] || water[i] >= 0) continue;
+    // A mouth: dry ground within 3 cells that lies at least 3 lower; dig in from there
+    // (on a gentler slope the tunnel starts as a cutting).
+    let found = false;
+    for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (let k = 1; k <= 3 && !found; k++) {
+        const mx = x + ox * k, mz = z + oz * k, j = mx + mz * W;
+        if (!land[j] || water[j] >= 0) break;
+        if (ground[j] > ground[i] - 3) continue;
+        worm(mx, ground[j] + 2, mz, -ox, -oz, 24 + Math.floor(rand() * 40), rand() < 0.5);
+        found = true;
+      }
+      if (found) break;
+    }
+    if (found) dug++;
+  }
+  return carved;
+}
+
+/** Rock ledges: the top of a cliff juts out over the drop (rocky biomes). */
+function addLedges(d: Deep): void {
+  const { land, ground, water, biome, W, put, at, sub } = d;
+  for (let z = 4; z < W - 4; z++)
+    for (let x = 4; x < W - 4; x++) {
+      const i = x + z * W;
+      if (!land[i] || water[i] >= 0 || !ROCKY.includes(biome[i])) continue;
+      const g = ground[i];
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([ox, oz], k) => {
+        const j = x + ox + (z + oz) * W;
+        if (!land[j] || water[j] >= 0 || ground[j] > g - 4 || hash2(x * 4 + k, z, sub(31)) > 0.35) return;
+        const top = at(x, g, z) as Mat, under = at(x, g - 1, z) as Mat;
+        if (top === Mat.Air || under === Mat.Air) return;
+        // One cell out, sometimes two when the drop continues.
+        for (let n = 1; n <= 2; n++) {
+          const lx = x + ox * n, lz = z + oz * n, l = lx + lz * W;
+          if (!land[l] || water[l] >= 0 || ground[l] > g - 4 || (n === 2 && hash2(x, z * 4 + k, sub(32)) > 0.4)) break;
+          if (at(lx, g, lz) !== Mat.Air || at(lx, g - 1, lz) !== Mat.Air) break;
+          put(lx, g, lz, top);
+          put(lx, g - 1, lz, under);
+        }
+      });
+    }
+}
+
+/**
+ * Natural arches over rocky ground and desert: a 2×2 band of rock rising from one foot
+ * to the other, high enough to walk under. Returns how many were built.
+ */
+function addArches(d: Deep, landCount: number): number {
+  const { land, ground, water, biome, W, put, at, sub } = d;
+  const rand = rng(sub(33));
+  const want = Math.round(landCount / 2600);
+  const ok = (x: number, z: number) => {
+    if (x < 5 || z < 5 || x >= W - 5 || z >= W - 5) return false;
+    const i = x + z * W;
+    return land[i] === 1 && water[i] < 0 && (ROCKY.includes(biome[i]) || biome[i] === Biome.Desert);
+  };
+  let built = 0;
+  for (let t = 0; t < want * 40 && built < want; t++) {
+    const ax = Math.floor(rand() * W), az = Math.floor(rand() * W);
+    if (!ok(ax, az)) continue;
+    let dx = rand() - 0.5, dz = rand() - 0.5;
+    const len = Math.sqrt(dx * dx + dz * dz) || 1;
+    dx /= len;
+    dz /= len;
+    const span = 8 + Math.floor(rand() * 6);
+    const bx = Math.round(ax + dx * span), bz = Math.round(az + dz * span);
+    if (!ok(bx, bz)) continue;
+    const ga = ground[ax + az * W], gb = ground[bx + bz * W];
+    const rise = 5 + Math.floor(rand() * 4);
+    const apex = Math.max(ga, gb) + rise;
+    if (apex >= SY - HEADROOM) continue;
+    const m = biome[ax + az * W] === Biome.Desert ? Mat.Sand : Mat.Stone;
+    const px = -dz, pz = dx; // across the band
+    const steps = span * 3;
+    for (let s = 0; s <= steps; s++) {
+      const f = s / steps;
+      const base = ga + (gb - ga) * f;
+      const y = Math.round(base + (apex - base) * 4 * f * (1 - f));
+      for (let w = 0; w < 2; w++) {
+        const x = Math.round(ax + (bx - ax) * f + px * w), z = Math.round(az + (bz - az) * f + pz * w);
+        if (x < 3 || z < 3 || x >= W - 3 || z >= W - 3 || !land[x + z * W]) continue;
+        for (let k = 0; k < 2; k++) if (y - k > ground[x + z * W] && at(x, y - k, z) === Mat.Air) put(x, y - k, z, m);
+      }
+    }
+    built++;
+  }
+  return built;
+}
+
+/**
+ * Ruins: old walled enclosures on flat dry ground. Slate walls (sand in the desert)
+ * crumbled in places, a timber gate the bot can dig through, sometimes a second open
+ * doorway, and an inner wall with one gap. Returns how many were built.
+ */
+function addRuins(d: Deep, landCount: number): number {
+  const { land, ground, water, biome, W, put, at, sub } = d;
+  const rand = rng(sub(34));
+  const want = Math.max(1, Math.round(landCount / 2200));
+  const used = new Uint8Array(W * W);
+  let built = 0;
+  for (let t = 0; t < want * 150 && built < want; t++) {
+    const a = 7 + Math.floor(rand() * 5), b = 7 + Math.floor(rand() * 5);
+    const x0 = 5 + Math.floor(rand() * (W - 10 - a)), z0 = 5 + Math.floor(rand() * (W - 10 - b));
+    if (x0 < 5 || z0 < 5) continue;
+    let lo = 99, hi = -1, fits = true;
+    for (let z = z0 - 1; z <= z0 + b && fits; z++)
+      for (let x = x0 - 1; x <= x0 + a && fits; x++) {
+        const i = x + z * W;
+        if (!land[i] || water[i] >= 0 || used[i] || biome[i] === Biome.Volcanic || biome[i] === Biome.Wetlands) fits = false;
+        else (lo = Math.min(lo, ground[i])), (hi = Math.max(hi, ground[i]));
+      }
+    if (!fits || hi - lo > 3 || hi + 5 >= SY - HEADROOM) continue;
+    const m = biome[x0 + z0 * W] === Biome.Desert ? Mat.Sand : Mat.Stone;
+    const top = hi + 3;
+    const wall = (x: number, z: number, h: number) => {
+      for (let y = ground[x + z * W] + 1; y <= h; y++) if (at(x, y, z) === Mat.Air || at(x, y, z) === Mat.Leaves) put(x, y, z, m);
+    };
+    // The outer wall, crumbling in places (and broken right down now and then).
+    const ring: [number, number][] = [];
+    for (let x = x0; x < x0 + a; x++) ring.push([x, z0], [x, z0 + b - 1]);
+    for (let z = z0 + 1; z < z0 + b - 1; z++) ring.push([x0, z], [x0 + a - 1, z]);
+    for (const [x, z] of ring) {
+      const r = hash2(x, z, sub(35));
+      wall(x, z, r < 0.08 ? ground[x + z * W] : r < 0.3 ? top - 1 : top);
+    }
+    // The gate: a 1-wide doorway in the middle of one side, closed by timber.
+    const side = Math.floor(rand() * 4);
+    const doors: [number, number][] = [
+      [x0 + (a >> 1), z0], [x0 + (a >> 1), z0 + b - 1], [x0, z0 + (b >> 1)], [x0 + a - 1, z0 + (b >> 1)],
+    ];
+    const [gx, gz] = doors[side];
+    for (let y = ground[gx + gz * W] + 1; y <= top; y++) put(gx, y, gz, y <= ground[gx + gz * W] + 2 ? Mat.Timber : m);
+    // Sometimes an open doorway opposite.
+    if (rand() < 0.5) {
+      const [ox, oz] = doors[side ^ 1];
+      for (let y = ground[ox + oz * W] + 1; y <= ground[ox + oz * W] + 2; y++) put(ox, y, oz, Mat.Air);
+    }
+    // An inner wall across the long side, with one gap.
+    const alongX = a >= b;
+    const n = alongX ? b - 2 : a - 2;
+    const gap = 1 + Math.floor(rand() * n);
+    for (let k = 1; k <= n; k++) {
+      if (k === gap) continue;
+      const x = alongX ? x0 + (a >> 1) : x0 + k, z = alongX ? z0 + k : z0 + (b >> 1);
+      wall(x, z, top - 1);
+    }
+    for (let z = z0 - 2; z <= z0 + b + 1; z++) for (let x = x0 - 2; x <= x0 + a + 1; x++) if (x >= 0 && z >= 0 && x < W && z < W) used[x + z * W] = 1;
+    built++;
+  }
+  return built;
 }
 
 /** The block at `depth` below a column's surface. */

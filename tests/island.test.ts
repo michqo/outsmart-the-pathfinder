@@ -21,12 +21,12 @@ describe('island generator', () => {
    * If you change the generator on purpose, bump GEN_VERSION and update these.
    */
   it(`v${GEN_VERSION} output matches the golden hashes`, () => {
-    expect(GEN_VERSION).toBe(2);
+    expect(GEN_VERSION).toBe(3);
     const golden: [IslandSpec, string, string][] = [
-      [{ seed: 1, ix: 0, iz: 0 }, 'd6c21c9d', '9284ac70'],
-      [{ seed: 99999, ix: 0, iz: 0 }, 'c9acf29e', '600cc09d'],
-      [{ seed: 47, ix: 3, iz: -2 }, '6dc1fd79', '6fcfefd9'],
-      [{ seed: 5, ix: 0, iz: 0, maxSize: 80 }, 'b7d7cbb5', 'dc2835f7'], // 95 across, capped to 80
+      [{ seed: 1, ix: 0, iz: 0 }, 'c1aa4408', '7c2a73e7'],
+      [{ seed: 99999, ix: 0, iz: 0 }, 'cceb72be', '17fbc8ca'],
+      [{ seed: 47, ix: 3, iz: -2 }, 'df25a820', '110317a7'],
+      [{ seed: 99999, ix: 0, iz: 0, maxSize: 80 }, '82fa0621', '45c3fb76'], // 107 across, capped to 80
     ];
     for (const [spec, data, biome] of golden) {
       const isl = generateIsland(spec);
@@ -100,6 +100,48 @@ describe('island generator', () => {
     const seen = new Set<number>();
     for (const seed of SEEDS) generateIsland({ seed, ix: 0, iz: 0 }).biome.forEach((b) => seen.add(b));
     for (const b of Object.values(Biome)) expect(seen.has(b), `biome ${b}`).toBe(true);
+  });
+
+  it('deeper islands: caves on every island, arches and ruins across seeds', () => {
+    let arches = 0, ruins = 0;
+    for (const seed of SEEDS) {
+      const isl = generateIsland({ seed, ix: 0, iz: 0 });
+      expect(isl.stats.caves, `caves on seed ${seed}`).toBeGreaterThan(0);
+      arches += isl.stats.arches;
+      if (isl.stats.ruins > 0) ruins++;
+    }
+    expect(arches).toBeGreaterThan(0);
+    expect(ruins).toBeGreaterThanOrEqual(SEEDS.length / 2);
+  });
+
+  it('caves are roofed and the bot can walk into them on most islands', () => {
+    let reachable = 0;
+    for (const seed of SEEDS.slice(0, 12)) {
+      const isl = generateIsland({ seed, ix: 0, iz: 0 });
+      const { sx, sy, sz } = isl.dims;
+      const w = new World(sx, sy, sz);
+      w.data.set(isl.data);
+      const { start } = defaultSpawn(w);
+      // Flood the cells the bot can stand in, stepping at most one up or down.
+      const key = (x: number, y: number, z: number) => x + z * sx + y * sx * sz;
+      const seen = new Set([key(...start)]);
+      const stack = [start];
+      let roofed = false;
+      while (stack.length && !roofed) {
+        const [x, y, z] = stack.pop()!;
+        for (let up = y + 2; up < sy; up++) if (w.get(x, up, z) !== Mat.Air && w.get(x, up, z) !== Mat.Leaves && w.get(x, up, z) !== Mat.Timber) { roofed = true; break; }
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]])
+          for (const dy of [0, 1, -1]) {
+            const n: [number, number, number] = [x + dx, y + dy, z + dz];
+            if (seen.has(key(...n)) || !canStand(w, ...n)) continue;
+            seen.add(key(...n));
+            stack.push(n);
+            break;
+          }
+      }
+      if (roofed) reachable++;
+    }
+    expect(reachable).toBeGreaterThanOrEqual(8);
   });
 
   it('the island level loads into a world and can be reset to it', () => {
