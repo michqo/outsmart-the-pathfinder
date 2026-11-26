@@ -1,6 +1,6 @@
-import type { Vec3i } from '../path/protocol';
-import { Mat } from '../world/materials';
-import type { World } from '../world/world';
+import type { Vec3i } from '../../src/path/protocol';
+import { Mat } from '../../src/world/materials';
+import type { World } from '../../src/world/world';
 
 const Z0 = 14, Z1 = 50; // slab width along z
 const TOP = 8; // slab top; feet stand at TOP + 1

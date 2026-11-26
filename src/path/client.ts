@@ -40,7 +40,7 @@ export class SearchClient {
 
   search(
     world: World, start: Vec3i, goal: Vec3i, weight: number, blocks: number, handlers: SearchHandlers,
-    options: { verifyRoute?: boolean; pruneDominated?: boolean } = {},
+    options: { verifyRoute?: boolean } = {},
   ): void {
     this.cancel();
     this.currentId++;

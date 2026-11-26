@@ -323,11 +323,11 @@ describe('biome blocks', () => {
     return out;
   };
 
-  it('ice is cheap and mud slow to walk on; diagonals scale too', () => {
-    const ice = movesFrom(flat(Mat.Ice), [5, 1, 5]);
-    expect(ice.find((m) => m.kind === MoveKind.Walk)!.cost).toBeCloseTo(0.6);
-    expect(ice.find((m) => m.kind === MoveKind.Diagonal)!.cost).toBeCloseTo(COST.diagonal * 0.6);
-    expect(movesFrom(flat(Mat.Mud), [5, 1, 5]).find((m) => m.kind === MoveKind.Walk)!.cost).toBe(2);
+  it('mud and snow are slow to walk on; diagonals scale too', () => {
+    const mud = movesFrom(flat(Mat.Mud), [5, 1, 5]);
+    expect(mud.find((m) => m.kind === MoveKind.Walk)!.cost).toBe(2);
+    expect(mud.find((m) => m.kind === MoveKind.Diagonal)!.cost).toBeCloseTo(COST.diagonal * 2);
+    expect(movesFrom(flat(Mat.Snow), [5, 1, 5]).find((m) => m.kind === MoveKind.Walk)!.cost).toBeCloseTo(1.3);
   });
 
   it('magma is never stood on, dug or dropped onto', () => {
@@ -355,7 +355,7 @@ describe('biome blocks', () => {
     expect(HARDNESS[Mat.Timber]).toBeGreaterThan(HARDNESS[Mat.Soil]);
   });
 
-  it('A* stays optimal on ice (same cost as Dijkstra) but expands more than on grass', () => {
+  it('A* stays optimal on slow floors (same cost as Dijkstra)', () => {
     const run = (floor: Mat, weight: number) => {
       const w = flat(floor);
       for (let z = 2; z < 10; z++) w.setRaw(6, 1, z, Mat.Crystal), w.setRaw(6, 2, z, Mat.Crystal);
@@ -363,7 +363,6 @@ describe('biome blocks', () => {
       while (a.step(1000) === 'running');
       return { cost: a.path()!.cost, expanded: a.expanded };
     };
-    expect(run(Mat.Ice, 1).cost).toBeCloseTo(run(Mat.Ice, 0).cost);
-    expect(run(Mat.Ice, 1).expanded).toBeGreaterThan(run(Mat.Grass, 1).expanded);
+    for (const floor of [Mat.Mud, Mat.Snow]) expect(run(floor, 1).cost).toBeCloseTo(run(floor, 0).cost);
   });
 });

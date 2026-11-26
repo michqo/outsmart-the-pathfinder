@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateGauntlet } from '../src/levels/gauntlet';
+import { generateGauntlet } from './fixtures/gauntlet';
 import { AStar } from '../src/path/astar';
 import { MoveKind } from '../src/path/moves';
 import { World } from '../src/world/world';

@@ -62,20 +62,3 @@ export function generateTestIsland(world: World, seed = 7, scale = 1): void {
   world.version++;
   world.markAllDirty();
 }
-
-/**
- * Debug level for performance: 9 stacked stone floors with random holes.
- * The bot can only go down (through holes), so a top-to-bottom search explores a lot.
- */
-export function generateStressLevel(world: World, seed = 11): void {
-  world.reset();
-  const r = rng(seed);
-  for (let y = 0; y <= 24; y += 3)
-    for (let z = 0; z < SZ; z++)
-      for (let x = 0; x < SX; x++) {
-        const hole = y > 0 && r() < 0.035;
-        if (!hole) world.setRaw(x, y, z, y === 0 ? Mat.Stone : Mat.Soil);
-      }
-  world.version++;
-  world.markAllDirty();
-}

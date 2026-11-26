@@ -2,18 +2,16 @@ import * as THREE from 'three';
 import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
 import { Handles } from './edit/handles';
-import { courseFromHash, decodeLink, encodeIsland, encodeLevel, HASH_KEY } from './levels/codec';
-import { HEURISTIC_TRAP, islandLevel, LEVELS, levelById, riftworksLevel, SANDBOXES, starsFor, type Level } from './levels/levels';
+import { islandLevel, SANDBOX, starsFor, type Level } from './levels/levels';
 import { IslandClient } from './gen/client';
 import { archRadius, archSpec, dailyLabel, dailySeed, islandAt, islandsAround, isOpen, neighbours, type ArchIsland } from './gen/archipelago';
-import { generateIsland, GEN_VERSION, ISLAND_SIZE, islandKey, islandParams } from './gen/island';
-import { TUNE_VERSION, tuneIsland } from './gen/tune';
+import { generateIsland, ISLAND_SIZE, islandKey, islandParams } from './gen/island';
+import { tuneIsland } from './gen/tune';
 import { cachedTuning, storeTuning } from './gen/tuneCache';
 import { archPosition, islandProgress, recordIsland, setArchPosition, starredCount } from './levels/archProgress';
 import { SkyIslands, type SkyBridge, type SkyIsland } from './render/skyIslands';
 import { TIME_LIGHT, timeOfDayFor, type TimeOfDay } from './render/timeOfDay';
 import { Biome } from './gen/island';
-import { bestFor, bestScores, recordScore, setLastLevel } from './levels/progress';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
 import { AlgorithmDuel, type DuelOpponent } from './path/duel';
@@ -40,11 +38,10 @@ import { renderThumbnails } from './render/characters';
 import { BotView } from './render/bot';
 import { createTerrainMaterial, createWaterMaterial, VoxelTexture, type TerrainMaterial, type WaterMaterial } from './render/terrain';
 import { Mat } from './world/materials';
-import { generateStressLevel, generateTestIsland } from './world/testIsland';
-import { DEFAULT_DIMS, sameDims, World, type Dims } from './world/world';
+import { generateTestIsland } from './world/testIsland';
+import { sameDims, World, type Dims } from './world/world';
 
 const settings: Settings = {
-  style: 'realistic',
   quality: 'medium',
   envIntensity: 1.0,
   bloom: 0.3,
@@ -53,18 +50,15 @@ const settings: Settings = {
   wind: 1,
   palette: 'meadow',
   grassStyle: 'drip',
-  hotbarStyle: 'chips',
   revealSeconds: 1.5,
   vizStyle: 'glow',
   botModel: storedCharacter() ?? 'capsule',
-  inventory: 16,
   ao: true,
   aoStrength: 0.5,
   jitter: 0.07,
   shadows: true,
   wireframe: false,
   exposure: 1.0,
-  seed: 7,
 };
 const stats: Stats = { fps: 0, frameMs: 0, triangles: 0, remeshMs: 0, undersideMs: 0 };
 
@@ -90,7 +84,6 @@ function colorOf(m: Mat): number {
     case Mat.Water: return p.water;
     case Mat.Placed: return p.blocks.placed.top;
     case Mat.Sand: return blockFaces(p, 'sand').top;
-    case Mat.Ice: return blockFaces(p, 'ice').top;
     case Mat.Mud: return blockFaces(p, 'mud').top;
     case Mat.Timber: return blockFaces(p, 'timber').side;
     case Mat.Leaves: return blockFaces(p, 'leaves').top;
@@ -125,7 +118,7 @@ function scheduleUnderside(): void {
 
 // ---------------------------------------------------------------- editing
 
-generateTestIsland(world, settings.seed);
+generateTestIsland(world, 7);
 const hud = new Hud();
 const sfx = new Sfx();
 const spawn = defaultSpawn(world);
@@ -136,7 +129,7 @@ const bot = new BotController(
   {
     model: settings.botModel,
     vizStyle: settings.vizStyle,
-    blocks: settings.inventory,
+    blocks: SANDBOX.inventory,
     colorOf,
     onWorldChanged: () => scheduleUnderside(),
     onRunEnd: (arrived, nodes, edited) => onRunEnd(arrived, nodes, edited),
@@ -154,7 +147,7 @@ new Handles(stage, world, [
 
 const history = new EditHistory();
 const editor = new Editor(stage, world, history, colorOf);
-const hotbar = new Hotbar(HOTBAR_MATS, settings.hotbarStyle);
+const hotbar = new Hotbar(HOTBAR_MATS);
 const syncHotbar = () => hotbar.setState(editor.material, editor.tool);
 hotbar.onSelect = (m) => editor.setMaterial(m);
 hotbar.onTool = (t) => editor.setTool(t);
@@ -173,7 +166,7 @@ editor.onEdit = (cells) => {
     sfx.play(now === Mat.Air ? 'remove' : 'place', now === Mat.Air ? history.lastBefore : now);
   }
   scheduleUnderside();
-  if (course.level !== HEURISTIC_TRAP) bot.onWorldEdit(cells);
+  bot.onWorldEdit(cells);
   if (cells.length > 0) invalidateDuel();
 };
 hotbar.onUndo = () => editor.undo();
@@ -182,14 +175,14 @@ syncHotbar();
 
 // ---------------------------------------------------------------- look
 
-/** Realistic-style assets; null until they've loaded (the stylised look shows meanwhile). */
+/** Textures and sky for the full look; null until they've loaded (simple flat colours show meanwhile). */
 let assets: Assets | null = null;
 let terrain: TerrainMaterial | null = null;
 let water: WaterMaterial | null = null;
 const voxels = new VoxelTexture(world);
 chunks.onRebuilt = () => voxels.touch();
 const post = new PostFX(stage.renderer, stage.scene, stage.camera);
-const realistic = () => settings.style === 'realistic' && assets !== null;
+const realistic = () => assets !== null;
 const DEFAULT_SUN = new THREE.Vector3(45, 70, 28).normalize();
 
 /** The current course's time of day (see timeOfDay.ts). */
@@ -234,7 +227,7 @@ function applyPalette(): void {
     u.uGrassSide.value.setHex(p.blocks.grass.side);
     u.uSoil.value.setHex(p.blocks.soil.side);
     u.uStone.value.setHex(p.blocks.stone.side);
-    (['sand', 'ice', 'mud', 'timber', 'leaves', 'magma', 'snow'] as const).forEach((k, i) => u.uExtra.value[i].setHex(k === 'timber' ? blockFaces(p, k).side : blockFaces(p, k).top));
+    (['sand', 'mud', 'timber', 'leaves', 'magma', 'snow'] as const).forEach((k, i) => u.uExtra.value[i].setHex(k === 'timber' ? blockFaces(p, k).side : blockFaces(p, k).top));
   } else {
     const d = timed ? timed.clone().setY(Math.max(timed.y, 0.22)).normalize() : DEFAULT_SUN;
     stage.sun.position.copy(stage.sun.target.position).addScaledVector(d, 85);
@@ -288,7 +281,7 @@ function upgradeTerrain(): void {
     applyQuality();
     applyPalette();
   }).catch((err) => {
-    console.error('Realistic terrain failed to load; keeping stylised graphics.', err);
+    console.error('Terrain textures failed to load; keeping the simple look.', err);
     assets = null;
     applyPalette();
   });
@@ -301,7 +294,6 @@ function onLoaded(): void {
     (id) => {
       settings.botModel = id;
       bot.setModel(id);
-      pane.refresh();
     },
     (onEach) =>
       renderThumbnails(() => {
@@ -323,8 +315,7 @@ const corner = new Corner(sfx.muted, {
 });
 let wasBusy = false;
 
-const pane = createPanel(settings, stats, {
-  onStyle: applyPalette,
+createPanel(settings, stats, {
   onQuality: () => {
     applyQuality();
     applyMeshOptions();
@@ -337,40 +328,13 @@ const pane = createPanel(settings, stats, {
   },
   onRealism: () => terrain && (terrain.uniforms.uRealism.value = settings.realism),
   onPalette: applyPalette,
-  onHotbarStyle: () => hotbar.setStyle(settings.hotbarStyle),
   onMeshOptions: applyMeshOptions,
   onJitter: () => (chunks.jitter.value = settings.jitter),
   onShadows: () => (stage.sun.castShadow = settings.shadows),
   onWireframe: () => chunks.setWireframe(settings.wireframe),
   onExposure: () => (stage.renderer.toneMappingExposure = settings.exposure * TIME_LIGHT[timeOfDay].exposure),
-  onRegenerate: () =>
-    startLevel({ ...SANDBOXES[0], generate: (w) => (generateTestIsland(w, settings.seed), defaultSpawn(w)) }),
-  onGauntlet: () => startLevel(levelById('gauntlet')!),
-  onBigIsland: () =>
-    startLevel({
-      ...SANDBOXES[0],
-      id: 'big-island',
-      name: 'Big island',
-      hint: 'A 128×48×128 window: the test island at twice the size.',
-      generate: (w) => (generateTestIsland(w, settings.seed, 2), defaultSpawn(w)),
-    }),
-  onStress: () =>
-    startLevel({
-      ...SANDBOXES[0],
-      id: 'stress',
-      name: 'Stress test',
-      hint: 'Nine floors of caves. A worst case for the search.',
-      generate: (w) => (generateStressLevel(w), { start: [2, 25, 2], goal: [61, 1, 61] }),
-    }),
   onReveal: () => (bot.viz.duration = settings.revealSeconds),
   onVizStyle: () => bot.setVizStyle(settings.vizStyle),
-  onBotModel: () => bot.setModel(settings.botModel),
-  onInventory: () => {
-    if (course.level.budget !== null) return; // challenges fix the bot's blocks
-    course.inventory = settings.inventory;
-    bot.setInventory(settings.inventory);
-    invalidateDuel();
-  },
 });
 
 // ---------------------------------------------------------------- levels & score
@@ -384,16 +348,11 @@ interface Course {
   start: Vec3i;
   goal: Vec3i;
   inventory: number;
-  weight: number;
-  /** A friend's score from a share link (0 = none). */
-  dare: number;
 }
 
 let course!: Course;
 /** Cells the player has touched since the level loaded (budget = how many now differ from the start). */
 const touched = new Set<number>();
-/** Sandbox: the last arrival's score, if nothing was edited since (shared as the dare). */
-let lastScore = 0;
 let sandboxBest = 0;
 let duel: AlgorithmDuel | null = null;
 let duelActive = false;
@@ -403,15 +362,10 @@ const score = new ScorePanel({
   onLevels: (opener) =>
     openLevelsDialog({
       arch: { seed: archSeed, daily: archSeed === dailySeed(), dailyLabel: dailyLabel(), starred: starredCount(archSeed), away: !archHere },
-      sandboxes: SANDBOXES,
-      best: bestScores(),
+      sandbox: SANDBOX,
       current: course.level.id,
-      onPick: (l) => {
-        clearHash();
-        startLevel(l);
-      },
+      onPick: (l) => startLevel(l),
       onArch: (action, seed) => {
-        clearHash();
         if (action === 'here') void goToIsland(archSeed, lastArchIsland(), false);
         else if (action === 'home') void goToIsland(archSeed, islandAt(archSeed, 0, 0)!, true);
         else {
@@ -421,25 +375,11 @@ const score = new ScorePanel({
       },
     }, opener),
   onReset: () => applyCourse(course, duelActive),
-  onShare: () => void share(),
-  onWeight: (w) => {
-    if (course.level.budget !== null) return;
-    course.weight = bot.weight = w;
-    lastScore = 0;
-  },
   onDuelToggle: () => setDuelMode(!duelActive),
   onOpponent: (next) => {
     opponent = next;
     duel?.clear();
-    score.setDuel(true, false, opponent);
-  },
-  onSeed: (seed) => {
-    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
-      score.toast('Enter a whole seed from 0 to 4,294,967,295.');
-      return;
-    }
-    clearHash();
-    startLevel(riftworksLevel(seed));
+    score.setDuel(true, opponent);
   },
 });
 
@@ -455,14 +395,13 @@ function moveSpawn(cell: Vec3i, start: boolean): boolean {
 }
 
 function setDuelMode(active: boolean): void {
-  const trap = course.level === HEURISTIC_TRAP;
-  duelActive = active || trap;
+  duelActive = active;
   duel?.clear();
   if (duelActive) bot.prepare();
   hud.setVisible(!duelActive);
   corner.setMode(duelActive);
   wasBusy = false;
-  score.setDuel(duelActive, trap, trap ? 'weighted' : opponent);
+  score.setDuel(duelActive, opponent);
 }
 
 function invalidateDuel(): void {
@@ -483,8 +422,8 @@ function runCurrentMode(): void {
     score.setDuelStatus('Comparison failed. Press Run to try again.');
   };
   try {
-    duel ??= new AlgorithmDuel(stage, (results) => score.setDuelResults(results, course.level === HEURISTIC_TRAP), comparisonError);
-    duel.run(world, bot.home, bot.goal, bot.blocksTotal, course.level === HEURISTIC_TRAP ? 'weighted' : opponent, settings.revealSeconds);
+    duel ??= new AlgorithmDuel(stage, (results) => score.setDuelResults(results), comparisonError);
+    duel.run(world, bot.home, bot.goal, bot.blocksTotal, opponent, settings.revealSeconds);
   } catch (error) {
     duel?.clear();
     comparisonError(error);
@@ -501,7 +440,6 @@ function countEdits(cells: number[]): boolean {
   }
   const budget = course.level.budget;
   if (budget !== null && used > budget) return false;
-  lastScore = 0;
   score.setEdits(used, budget);
   return true;
 }
@@ -511,21 +449,16 @@ function onRunEnd(arrived: boolean, nodes: number, edited: boolean): void {
   const practice = level.budget !== null && edited;
   let newBest = false;
   if (arrived && !practice) {
-    if (level.budget !== null) newBest = recordScore(level.id, nodes);
-    if (archHere && level.kind === 'island') islandResult(archHere, starsFor(level, nodes), nodes);
+    if (archHere && level.kind === 'island') newBest = islandResult(archHere, starsFor(level, nodes), nodes);
     else if (nodes > sandboxBest) (sandboxBest = nodes), (newBest = true);
-    lastScore = nodes;
   }
   if (newBest) sfx.play('best');
   score.setResult(arrived, nodes, newBest, practice);
 }
 
-function startLevel(level: Level, dare = 0): void {
+function startLevel(level: Level): void {
   const sp = level.generate(world);
-  const duel = level.kind === 'riftworks';
-  if (duel) opponent = 'pareto';
-  applyCourse({ level, dims: { sx: world.sx, sy: world.sy, sz: world.sz }, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory, weight: level.weight, dare }, duel);
-  if (LEVELS.includes(level)) setLastLevel(level.id);
+  applyCourse({ level, dims: { sx: world.sx, sy: world.sy, sz: world.sz }, world: world.data.slice(), start: sp.start, goal: sp.goal, inventory: level.inventory });
 }
 
 const islands = new IslandClient();
@@ -533,12 +466,7 @@ const islands = new IslandClient();
  * Touch devices get smaller islands from the same seed (see PLAN.md, M8). Decided by the
  * input, not the window width, so resizing a desktop window never changes the island.
  */
-const islandCap: number | undefined = matchMedia('(pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
-/**
- * The island size limit in play: this device's, or the sender's when you opened an island
- * link (so a dare is on the same island it was set on).
- */
-let archCap: number | undefined = islandCap;
+const archCap: number | undefined = matchMedia('(pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
 
 // ---------------------------------------------------------------- archipelago
 
@@ -548,7 +476,7 @@ let archHere: ArchIsland | null = null;
 let archRequest = 0;
 let flight: { from: THREE.Vector3; to: THREE.Vector3; t: number; done: () => void } | null = null;
 stage.scene.add(skyIslands.group);
-skyIslands.onPick = (a) => void goToIsland(archSeed, a, true, 0, archCap);
+skyIslands.onPick = (a) => void goToIsland(archSeed, a, true);
 
 const inArchipelago = () => archHere !== null;
 const starsOn = (a: ArchIsland) => islandProgress(archSeed, a.ix, a.iz, archCap).stars;
@@ -581,11 +509,10 @@ async function loadArchIsland(seed: number, a: ArchIsland, onProgress: (f: numbe
 const windowScale = (seed: number, a: ArchIsland) => (Math.ceil((islandParams(archSpec(seed, a, archCap)).size + 8) / 16) * 16) / 64;
 
 /** Travels to an island: flies there over the sky when it's in view, else just loads it. */
-async function goToIsland(seed: number, a: ArchIsland, fly: boolean, dare = 0, cap = islandCap): Promise<void> {
+async function goToIsland(seed: number, a: ArchIsland, fly: boolean): Promise<void> {
   const req = ++archRequest;
-  if (seed !== archSeed || cap !== archCap || !archHere) fly = false;
-  if (!fly && archHere && seed === archSeed && cap === archCap && a.ix === archHere.ix && a.iz === archHere.iz && course.level.kind === 'island') return;
-  archCap = cap;
+  if (seed !== archSeed || !archHere) fly = false;
+  if (!fly && archHere && seed === archSeed && a.ix === archHere.ix && a.iz === archHere.iz && course.level.kind === 'island') return;
   let pct = -1;
   const loading = loadArchIsland(seed, a, (f) => {
     const n = Math.round(f * 100);
@@ -611,7 +538,7 @@ async function goToIsland(seed: number, a: ArchIsland, fly: boolean, dare = 0, c
   if (offset) snapCamera(offset);
   stage.controls.enabled = true;
   archSeed = seed;
-  arriveAt(a, level, dare, !!offset);
+  arriveAt(a, level, !!offset);
 }
 
 /** Animates the camera's target over to `to` (keeping its angle; `zoom` scales the distance). */
@@ -662,11 +589,11 @@ function snapCamera(by: THREE.Vector3): void {
   stage.controls.target.sub(by);
 }
 
-function arriveAt(a: ArchIsland, level: Level, dare: number, flown: boolean): void {
+function arriveAt(a: ArchIsland, level: Level, flown: boolean): void {
   if (flown) stageScale = windowScale(archSeed, a); // the flight already zoomed the camera
   archHere = a;
   skyIslands.setOrigin(a.centre);
-  startLevel(level, dare);
+  startLevel(level);
   setArchPosition(archSeed, [a.ix, a.iz]);
   refreshSky();
   frameRoute();
@@ -790,15 +717,16 @@ function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void 
   skyIslands.setBridges(bridges);
 }
 
-/** A finished run on an archipelago island: record stars, open bridges on the first ★. */
-function islandResult(a: ArchIsland, stars: number, nodes: number): void {
+/** A finished run on an archipelago island: record it, open bridges on the first ★. True = new best. */
+function islandResult(a: ArchIsland, stars: number, nodes: number): boolean {
   const had = starsOn(a);
   const before = new Map(islandsAround(archSeed, a.ix, a.iz, 2).map((b) => [`${b.ix},${b.iz}`, starsOn(b)]));
-  recordIsland(archSeed, a.ix, a.iz, archCap, nodes, stars);
-  if (had > 0 || stars === 0) return;
+  const better = recordIsland(archSeed, a.ix, a.iz, archCap, nodes, stars);
+  if (had > 0 || stars === 0) return better;
   const opened = neighbours(archSeed, a).filter((b) => !isOpen(archSeed, b, (c) => (c.ix === a.ix && c.iz === a.iz ? 0 : starsOn(c)))).length;
   refreshSky(a, before);
   if (opened) setTimeout(() => score.toast(`Bridges open: ${opened} new island${opened === 1 ? '' : 's'}. Zoom out to travel.`), 1600);
+  return better;
 }
 
 /**
@@ -821,7 +749,7 @@ function startArchipelago(): void {
       tuning = tuneIsland(w, a.tier, islandKey(spec));
       storeTuning(spec, tuning);
     }
-    arriveAt(a, archLevel(a, spec, island, tuning), 0, false);
+    arriveAt(a, archLevel(a, spec, island, tuning), false);
     if (a !== target) void goToIsland(archSeed, target, false);
     return;
   }
@@ -906,108 +834,19 @@ function applyCourse(c: Course, compare = false): void {
   sfx.setAmbience(ambienceFor(c.level, time));
   history.clear();
   touched.clear();
-  lastScore = sandboxBest = 0;
+  sandboxBest = 0;
   rebuildUnderside();
   bot.setGoal(c.goal);
   bot.setStart(c.start);
-  bot.weight = c.weight;
   bot.setInventory(c.inventory);
-  settings.inventory = c.inventory;
-  pane.refresh();
-  const index = LEVELS.indexOf(c.level);
-  score.setLevel(c.level, index >= 0 ? index : null, c.level.budget !== null ? bestFor(c.level.id) : 0, c.dare);
+  score.setLevel(c.level, archHere && c.level.kind === 'island' ? islandProgress(archSeed, archHere.ix, archHere.iz, archCap).best : 0);
   score.setEdits(0, c.level.budget);
-  score.setWeight(c.weight, c.level.budget === null);
   setDuelMode(compare);
 }
 
-/** Copy link: challenges share the level and your best; sandboxes share the whole world. */
-async function share(): Promise<void> {
-  const { level } = course;
-  const challenge = LEVELS.includes(level) || level === HEURISTIC_TRAP;
-  const dare = level === HEURISTIC_TRAP ? 0 : challenge ? bestFor(level.id) : lastScore;
-  if (level.kind === 'island' && archHere) return copyLink(await encodeIsland({
-    seed: archSeed, ix: archHere.ix, iz: archHere.iz, cap: archCap ?? 0, dare: bestFor(level.id),
-    genVersion: GEN_VERSION, tuneVersion: TUNE_VERSION,
-  }), bestFor(level.id));
-  if (!challenge && !sameDims(world, DEFAULT_DIMS)) {
-    score.toast("Islands this big can't be shared as a sandbox");
-    return;
-  }
-  const text = await encodeLevel({
-    mode: challenge ? 'challenge' : 'sandbox',
-    levelId: challenge ? level.id : level.kind === 'riftworks' ? `riftworks:${level.seed}` : '',
-    world: challenge ? null : bot.courseSnapshot(),
-    start: bot.home,
-    goal: bot.goal,
-    inventory: bot.blocksTotal,
-    weight: bot.weight,
-    dare,
-  });
-  await copyLink(text, dare);
-}
-
-async function copyLink(text: string, dare: number): Promise<void> {
-  const url = `${location.origin}${location.pathname}#${HASH_KEY}${text}`;
-  window.history.replaceState(null, '', url);
-  try {
-    await navigator.clipboard.writeText(url);
-    score.toast(dare ? `Link copied: dare a friend to beat ${dare.toLocaleString('en-US')} nodes` : 'Link copied');
-  } catch {
-    score.toast('Copy the link from the address bar');
-  }
-}
-
-function clearHash(): void {
-  if (location.hash) window.history.replaceState(null, '', location.pathname + location.search);
-}
-
-/** Opens the course in the URL hash, if any. Returns false when there's none (or it's broken). */
-async function openSharedCourse(): Promise<boolean> {
-  const text = courseFromHash(location.hash);
-  if (!text) return false;
-  try {
-    const link = await decodeLink(text);
-    if (link.v === 2) {
-      const i = link.island;
-      const a = islandAt(i.seed, i.ix, i.iz);
-      if (!a) throw new Error('no island there');
-      if (i.genVersion !== GEN_VERSION || i.tuneVersion !== TUNE_VERSION) score.toast('This link is from another version of the game: the island may differ');
-      const cap = i.cap || undefined;
-      if (cap !== islandCap) score.toast(cap ? 'Playing the smaller, touch-screen size of this island, as your friend did' : 'Playing the full size of this island, as your friend did');
-      await goToIsland(i.seed, a, false, i.dare, cap);
-      return true;
-    }
-    const s = link.level;
-    if (s.mode === 'challenge') {
-      const level = levelById(s.levelId);
-      if (!level || level.budget === null) throw new Error(`unknown challenge ${s.levelId}`);
-      startLevel(level, s.dare);
-    } else {
-      const seeded = /^riftworks:(\d{1,10})$/.exec(s.levelId);
-      const seed = seeded ? Number(seeded[1]) : NaN;
-      const level: Level = seed <= 0xffffffff ? riftworksLevel(seed) : {
-        ...SANDBOXES[0],
-        id: 'shared',
-        name: 'Shared course',
-        hint: 'Someone built this for you. Run it, or change it and share it back.',
-      };
-      const duel = level.kind === 'riftworks';
-      if (duel) opponent = 'pareto';
-      applyCourse({ level, dims: DEFAULT_DIMS, world: s.world!, start: s.start, goal: s.goal, inventory: s.inventory, weight: s.weight, dare: s.dare }, duel);
-    }
-    return true;
-  } catch (err) {
-    console.warn('Could not open the shared course', err);
-    score.toast("That link's course couldn't be opened");
-    clearHash();
-    return false;
-  }
-}
-
 startArchipelago();
-void openSharedCourse();
-window.addEventListener('hashchange', () => void openSharedCourse());
+// Share links were retired: drop an old one from the address bar.
+if (location.hash.startsWith('#course=')) window.history.replaceState(null, '', location.pathname + location.search);
 
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Space' || ignoreGameShortcut(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;

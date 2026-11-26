@@ -66,8 +66,8 @@ vec3 greener(vec3 c) {
   return mix(c, l * vec3(0.6, 1.12, 0.3), uGreen);
 }
 uniform vec3 uPlaced, uCrystal;
-/** Sand, ice, mud, timber, leaves, magma, snow (materials 7..13). */
-uniform vec3 uExtra[7];
+/** Sand, mud, timber, leaves, magma, snow (materials 7..12). */
+uniform vec3 uExtra[6];
 /** 0 = soft palette colours, 1 = full photo textures. */
 uniform float uRealism;
 uniform vec3 uGrassTop, uGrassSide, uSoil, uStone;
@@ -171,25 +171,19 @@ const TERRAIN_SURFACE = /* glsl */ `
     sAlb = uPlaced * (0.74 + 0.08 * vnoise(sUv * 7.0));
     sNT = normalize(vec3(sNT.xy * 0.1, 1.0));
     sArm = vec3(1.0, 0.36 + 0.12 * sArm.g, 0.0);
-  } else if (sMat >= 7 && sMat <= 13) {
+  } else if (sMat >= 7 && sMat <= 12) {
     // The biome blocks: a palette colour with a scan's luminance for detail.
     vec3 base = uExtra[sMat - 7];
-    float layer = sMat == 11 ? 0.0 : (sMat == 8 || sMat == 12 || sMat == 13) ? 2.0 : 1.0;
+    float layer = sMat == 10 ? 0.0 : (sMat == 11 || sMat == 12) ? 2.0 : 1.0;
     sampleLayer(layer, tuv * (sMat == 7 ? 1.6 : 1.0), sAlb, sNT, sArm);
     float l = dot(sAlb, vec3(0.3, 0.59, 0.11));
     sAlb = base * (0.62 + 0.8 * l) * macro;
     if (sMat == 7) sNT = normalize(vec3(sNT.xy * 0.5, sNT.z));
-    if (sMat == 8) {
-      // Ice: smooth and glossy, with a faint cool glow from inside.
-      sNT = normalize(vec3(sNT.xy * 0.2, 1.0));
-      sArm = vec3(1.0, 0.1, 0.0);
-      sEmis = base * 0.05;
-    }
-    if (sMat == 13) { sAlb = base * (0.9 + 0.15 * l); sNT = normalize(vec3(sNT.xy * 0.3, 1.0)); }
-    if (sMat == 9) sArm = vec3(1.0, 0.35, 0.0); // wet mud
-    if (sMat == 10 && !sTop) sAlb *= 0.82 + 0.18 * smoothstep(-0.3, 0.9, sin(sUv.x * 7.0 + vnoise(sUv * vec2(1.0, 6.0)) * 3.0));
-    if (sMat == 10 && sTop) sAlb *= 0.8 + 0.25 * smoothstep(0.2, 0.9, fract(length(fract(sUv) - 0.5) * 6.0));
-    if (sMat == 12) {
+    if (sMat == 12) { sAlb = base * (0.9 + 0.15 * l); sNT = normalize(vec3(sNT.xy * 0.3, 1.0)); }
+    if (sMat == 8) sArm = vec3(1.0, 0.35, 0.0); // wet mud
+    if (sMat == 9 && !sTop) sAlb *= 0.82 + 0.18 * smoothstep(-0.3, 0.9, sin(sUv.x * 7.0 + vnoise(sUv * vec2(1.0, 6.0)) * 3.0));
+    if (sMat == 9 && sTop) sAlb *= 0.8 + 0.25 * smoothstep(0.2, 0.9, fract(length(fract(sUv) - 0.5) * 6.0));
+    if (sMat == 11) {
       // Magma: dark crust with glowing cracks.
       float k = vnoise(sUv * 1.4 + float(sCell.y) * 3.7);
       float crack = smoothstep(0.5, 0.75, k);
@@ -266,7 +260,7 @@ export function createTerrainMaterial(
     uGrassSide: { value: new THREE.Color() },
     uSoil: { value: new THREE.Color() },
     uStone: { value: new THREE.Color() },
-    uExtra: { value: Array.from({ length: 7 }, () => new THREE.Color()) },
+    uExtra: { value: Array.from({ length: 6 }, () => new THREE.Color()) },
   };
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   material.onBeforeCompile = (shader) => {

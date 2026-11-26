@@ -48,17 +48,17 @@ const CARDS: Card[] = [
         ? `<ul><li><b>Tap</b>place a block</li><li><b>− button</b>switch to removing</li>
            <li><b>Drag</b>turn the camera</li><li><b>Pinch / two fingers</b>zoom and pan</li>
            <li><b>↶</b>undo</li></ul>`
-        : `<ul><li><b>Click</b>place a block (1–5 picks one)</li><li><b>Right-click</b>remove</li>
+        : `<ul><li><b>Click</b>place a block (1–8 picks one)</li><li><b>Right-click</b>remove</li>
            <li><b>Shift + drag</b>fill a box</li><li><b>Drag / scroll</b>turn and zoom</li>
            <li><b>⌘Z</b>undo</li></ul>
-           <p style="margin-top:8px">The bot can dig, swim, and use its blocks to bridge and climb. Slate is slow to dig; crystal can't be dug.</p>`,
+           <p style="margin-top:8px">The bot can dig, swim, and use its blocks to bridge and climb. Slate and timber are slow to dig, crystal and ember can't be dug, and bog and snow slow it down.</p>`,
   },
   {
     title: 'Run it',
     art: '▶ ★★★',
     body: () =>
       `<p>Press <b>${touch() ? 'Run' : 'Space'}</b> and the bot searches, then walks the path. Edit while it walks and it has to rethink.</p>
-       <p>Each challenge gives you a limited number of edits and three star targets. Editing during a run makes it practice. Beat your best, then <b>Copy link</b> to dare a friend.</p>`,
+       <p>Each island gives you a limited number of edits and three star targets. Editing during a run makes it practice. Earn a ★ to open bridges to the next islands.</p>`,
   },
 ];
 

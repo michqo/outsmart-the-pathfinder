@@ -238,8 +238,6 @@ export function generateIsland(spec: IslandSpec): Island {
         continue;
       }
       for (let y = g + 1; y <= water[i]; y++) put(x, y, z, Mat.Water);
-      // Snowy lakes freeze over: ice the bot can cross fast.
-      if (b === Biome.Snowy) put(x, water[i], z, Mat.Ice);
     }
 
   // 7. Crystal fields: spires and broken crystal walls (crystal can't be dug).

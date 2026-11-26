@@ -98,9 +98,6 @@ export class Sfx {
           this.hiss(t, 0.06, 700, 0.1);
         } else if (mat === Mat.Sand || mat === Mat.Snow) {
           this.hiss(t, 0.16, mat === Mat.Sand ? 2600 : 1800, 0.14);
-        } else if (mat === Mat.Ice) {
-          this.tone(2400, 1900, t, 0.08, 'sine', 0.1);
-          this.hiss(t, 0.08, 5200, 0.08);
         } else {
           this.hiss(t, 0.12, mat === Mat.Stone ? 1400 : 900, 0.16);
           this.tone(mat === Mat.Stone ? 180 : 140, 80, t, 0.1, 'square', 0.06);
@@ -151,7 +148,6 @@ export class Sfx {
       case Mat.Water: this.hiss(t, 0.14, 1100, 0.07 * v); this.tone(380, 240, t, 0.08, 'sine', 0.05 * v); break;
       case Mat.Sand: this.hiss(t, 0.09, 2600, 0.06 * v); break;
       case Mat.Snow: this.hiss(t, 0.07, 1700, 0.08 * v); this.hiss(t + 0.03, 0.05, 2300, 0.05 * v); break;
-      case Mat.Ice: this.tone(2300, 2100, t, 0.03, 'sine', 0.04 * v); this.hiss(t, 0.02, 6000, 0.03 * v); break;
       case Mat.Mud: this.tone(150, 80, t, 0.09, 'sine', 0.08 * v); this.hiss(t, 0.05, 450, 0.05 * v); break;
       case Mat.Stone: case Mat.Crystal: case Mat.Placed: case Mat.Timber:
         this.hiss(t, 0.025, 3200, 0.06 * v); this.tone(700, 500, t, 0.03, 'triangle', 0.03 * v); break;

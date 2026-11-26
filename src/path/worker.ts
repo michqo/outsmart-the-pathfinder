@@ -33,7 +33,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   if (sx !== world.sx || sy !== world.sy || sz !== world.sz) world.reshape(sx, sy, sz);
   world.data.set(msg.data);
   const start = performance.now();
-  const astar = new AStar(world, msg.start, msg.goal, msg.weight, msg.blocks, msg.pruneDominated);
+  const astar = new AStar(world, msg.start, msg.goal, msg.weight, msg.blocks);
   job = {
     id: msg.id, astar, version: msg.version, computeMs: performance.now() - start,
     verifyRoute: msg.verifyRoute === true, blocks: msg.blocks,

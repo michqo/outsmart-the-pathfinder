@@ -1,9 +1,7 @@
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CharacterRig, characterInfo, loadCharacter } from './characters';
 
-export const BOT_MODELS = { Capsule: 'capsule', Boxy: 'boxy', Bulb: 'bulb' } as const;
-/** A procedural robot ('capsule' | 'boxy' | 'bulb') or a character id from CHARACTERS. */
+/** 'capsule' (the procedural robot) or a character id from CHARACTERS. */
 export type BotModel = string;
 
 /** Which animation clip each mood plays on a Kenney character. */
@@ -93,7 +91,7 @@ export class BotView {
       return mesh;
     };
 
-    // Legs (shared by all models): little capsules that swing from the hip.
+    // Legs: little capsules that swing from the hip.
     for (const side of [-1, 1]) {
       const hip = new THREE.Group();
       hip.position.set(side * 0.15, 0.4, 0);
@@ -103,33 +101,15 @@ export class BotView {
       this.body.add(hip);
     }
 
-    let eyeY = 1.08, eyeZ = 0.33, antennaY = 1.42;
-    if (model === 'capsule') {
-      add(this.body, new THREE.CapsuleGeometry(0.36, 0.45, 8, 20), m.body, 0, 0.92, 0);
-      add(this.body, new THREE.TorusGeometry(0.365, 0.045, 8, 32).rotateX(Math.PI / 2), m.accent, 0, 0.72, 0);
-      add(this.eye, new THREE.CylinderGeometry(0.2, 0.2, 0.06, 28).rotateX(Math.PI / 2), m.eyeWhite);
-      add(this.eye, new THREE.SphereGeometry(0.1, 16, 12), m.ink, 0, 0, 0.03);
-    } else if (model === 'boxy') {
-      add(this.body, new RoundedBoxGeometry(0.78, 0.72, 0.62, 4, 0.16), m.body, 0, 0.78, 0);
-      add(this.body, new RoundedBoxGeometry(0.58, 0.4, 0.06, 3, 0.04), m.ink, 0, 0.85, 0.3);
-      eyeY = 0.85;
-      eyeZ = 0.34;
-      antennaY = 1.14;
-      add(this.eye, new THREE.SphereGeometry(0.09, 16, 12).scale(1, 1, 0.4), m.glow);
-      add(this.eye, new THREE.SphereGeometry(0.035, 10, 8), m.eyeWhite, 0.035, 0.035, 0.03);
-    } else {
-      add(this.body, new THREE.SphereGeometry(0.44, 28, 20), m.body, 0, 0.78, 0);
-      add(this.body, new THREE.SphereGeometry(0.445, 28, 10, 0, Math.PI * 2, Math.PI * 0.62, Math.PI * 0.38), m.accent, 0, 0.78, 0);
-      eyeY = 0.9;
-      eyeZ = 0.39;
-      antennaY = 1.2;
-      add(this.eye, new THREE.SphereGeometry(0.17, 20, 14).scale(1, 1, 0.45), m.eyeWhite);
-      add(this.eye, new THREE.SphereGeometry(0.085, 14, 10), m.ink, 0, 0, 0.05);
-    }
-    this.eye.position.set(0, eyeY, eyeZ);
+    // The capsule robot (any unknown model falls back to it).
+    add(this.body, new THREE.CapsuleGeometry(0.36, 0.45, 8, 20), m.body, 0, 0.92, 0);
+    add(this.body, new THREE.TorusGeometry(0.365, 0.045, 8, 32).rotateX(Math.PI / 2), m.accent, 0, 0.72, 0);
+    add(this.eye, new THREE.CylinderGeometry(0.2, 0.2, 0.06, 28).rotateX(Math.PI / 2), m.eyeWhite);
+    add(this.eye, new THREE.SphereGeometry(0.1, 16, 12), m.ink, 0, 0, 0.03);
+    this.eye.position.set(0, 1.08, 0.33);
     this.body.add(this.eye);
 
-    this.antenna.position.set(0, antennaY, 0);
+    this.antenna.position.set(0, 1.42, 0);
     add(this.antenna, new THREE.CylinderGeometry(0.018, 0.018, 0.2, 6), m.ink, 0, 0.1, 0);
     add(this.antenna, new THREE.SphereGeometry(0.06, 12, 8), m.accent, 0, 0.22, 0);
     this.body.add(this.antenna);
@@ -234,7 +214,7 @@ export class BotView {
   }
 }
 
-type BotMats = Record<'body' | 'accent' | 'ink' | 'eyeWhite' | 'glow', THREE.Material>;
+type BotMats = Record<'body' | 'accent' | 'ink' | 'eyeWhite', THREE.Material>;
 
 function stylisedMats(): BotMats {
   return {
@@ -242,7 +222,6 @@ function stylisedMats(): BotMats {
     accent: new THREE.MeshStandardMaterial({ color: CORAL, roughness: 0.5 }),
     ink: new THREE.MeshStandardMaterial({ color: INK, roughness: 0.35 }),
     eyeWhite: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 }),
-    glow: new THREE.MeshBasicMaterial({ color: 0x8ff4ff }),
   };
 }
 
@@ -262,7 +241,6 @@ function realisticMats(): BotMats {
       roughness: 0.04,
       clearcoat: 1,
     }),
-    glow: new THREE.MeshStandardMaterial({ color: 0x0b2a30, emissive: 0x8ff4ff, emissiveIntensity: 3 }),
   };
 }
 

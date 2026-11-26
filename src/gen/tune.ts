@@ -193,7 +193,7 @@ function climb(
   w.data.set(island.data);
   let best = untouched;
   let route = solve(w, start, goal, rules.blocks)!.path;
-  // What the player's hotbar offers (no ice: see HOTBAR_MATS).
+  // What the player's hotbar offers.
   const mats = [Mat.Soil, Mat.Stone, Mat.Crystal, Mat.Water, Mat.Sand, Mat.Mud, Mat.Leaves];
   const triesPerRound = 12;
   const edits: number[] = [];

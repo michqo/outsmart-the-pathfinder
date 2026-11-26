@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { pickVoxel } from '../src/edit/pick';
-import { LEVELS, SANDBOXES } from '../src/levels/levels';
+import { SANDBOX } from '../src/levels/levels';
+import { FLAT, MOAT, TWO_CLIFFS } from './fixtures/courses';
 import { PALETTES } from '../src/palette';
 import { buildUnderside } from '../src/render/underside';
 import { Mat } from '../src/world/materials';
@@ -16,11 +17,11 @@ import { SX, SY, SZ, World } from '../src/world/world';
  * the FRONT of the rock surface first. If it gets there untouched, the player can see
  * into (and through) the island.
  */
-/** The first-wall level after a player dug shafts through it and hung blocks from its bottom. */
+/** The flat slab after a player dug shafts through it and hung blocks from its bottom. */
 const EDITED = {
   name: 'Edited island (shafts dug, blocks hung below)',
   generate(w: World) {
-    LEVELS[0].generate(w);
+    FLAT.generate(w);
     const rand = rng(9);
     for (let k = 0; k < 25; k++) {
       const x = 18 + Math.floor(rand() * 28), z = 22 + Math.floor(rand() * 20);
@@ -35,7 +36,7 @@ const EDITED = {
 };
 
 describe('island underside', () => {
-  for (const level of [...LEVELS, ...SANDBOXES, EDITED]) {
+  for (const level of [FLAT, MOAT, TWO_CLIFFS, SANDBOX, EDITED]) {
     it(`${level.name}: no see-through gaps under the island`, { timeout: 60_000 }, () => {
       const w = new World();
       level.generate(w);

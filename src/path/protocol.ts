@@ -1,7 +1,7 @@
 export type Vec3i = [number, number, number];
 
 export type ToWorker =
-  | { type: 'search'; id: number; data: Uint8Array; dims: [number, number, number]; start: Vec3i; goal: Vec3i; weight: number; blocks: number; version: number; verifyRoute?: boolean; pruneDominated?: boolean }
+  | { type: 'search'; id: number; data: Uint8Array; dims: [number, number, number]; start: Vec3i; goal: Vec3i; weight: number; blocks: number; version: number; verifyRoute?: boolean }
   | { type: 'cancel'; id: number };
 
 export type FromWorker =

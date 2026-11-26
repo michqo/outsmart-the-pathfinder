@@ -29,10 +29,9 @@ export interface Palette {
 const faces = (top: number, side: number, bottom = side): FaceColors => ({ top, side, bottom });
 
 /** Blocks added with the biomes (M11). Every palette shares these unless it overrides them. */
-export type ExtraBlock = 'sand' | 'ice' | 'mud' | 'timber' | 'leaves' | 'magma' | 'snow';
+export type ExtraBlock = 'sand' | 'mud' | 'timber' | 'leaves' | 'magma' | 'snow';
 export const EXTRA_BLOCKS: Record<ExtraBlock, FaceColors> = {
   sand: faces(0xf3dfa8, 0xe6cc8e, 0xd9bc80),
-  ice: faces(0xd8f1ff, 0xb9e0f7, 0xa6d2ee),
   mud: faces(0x8a6a55, 0x775946, 0x684d3d),
   timber: faces(0xc59a6a, 0x9c7350, 0xc59a6a),
   leaves: faces(0x6fbf73, 0x5aa866, 0x4f955c),

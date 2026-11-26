@@ -6,9 +6,8 @@ import { SearchClient, type DoneMsg } from './client';
 import type { Vec3i } from './protocol';
 
 export const OPPONENTS = {
-  dijkstra: { name: 'Dijkstra', weight: 0, pruneDominated: false },
-  weighted: { name: 'Weighted A*', weight: 5, pruneDominated: false },
-  pareto: { name: 'Pareto A*', weight: 1, pruneDominated: true },
+  dijkstra: { name: 'Dijkstra', weight: 0 },
+  weighted: { name: 'Weighted A*', weight: 5 },
 } as const;
 export type DuelOpponent = keyof typeof OPPONENTS;
 export type DuelResults = [DoneMsg, DoneMsg];
@@ -59,7 +58,7 @@ export class AlgorithmDuel {
     this.dims = { sx: world.sx, sy: world.sy, sz: world.sz };
     this.phase = 'searching';
     // Both workers copy the same world before the next player event can edit it.
-    const jobs = [{ weight: 1, pruneDominated: false }, OPPONENTS[opponent]];
+    const jobs = [{ weight: 1 }, OPPONENTS[opponent]];
     this.lanes.forEach(({ client, viz }, i) => {
       viz.reset(world);
       viz.duration = revealSeconds;
@@ -82,7 +81,7 @@ export class AlgorithmDuel {
           this.clear();
           this.onError(event);
         },
-      }, { verifyRoute: true, pruneDominated: jobs[i].pruneDominated });
+      }, { verifyRoute: true });
     });
   }
 

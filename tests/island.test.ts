@@ -23,10 +23,10 @@ describe('island generator', () => {
   it(`v${GEN_VERSION} output matches the golden hashes`, () => {
     expect(GEN_VERSION).toBe(2);
     const golden: [IslandSpec, string, string][] = [
-      [{ seed: 1, ix: 0, iz: 0 }, '943dd7d9', '9284ac70'],
-      [{ seed: 99999, ix: 0, iz: 0 }, 'a1f632bd', '600cc09d'],
-      [{ seed: 47, ix: 3, iz: -2 }, '8226a191', '6fcfefd9'],
-      [{ seed: 5, ix: 0, iz: 0, maxSize: 80 }, 'e9e225fa', 'dc2835f7'], // 95 across, capped to 80
+      [{ seed: 1, ix: 0, iz: 0 }, 'd6c21c9d', '9284ac70'],
+      [{ seed: 99999, ix: 0, iz: 0 }, 'c9acf29e', '600cc09d'],
+      [{ seed: 47, ix: 3, iz: -2 }, '6dc1fd79', '6fcfefd9'],
+      [{ seed: 5, ix: 0, iz: 0, maxSize: 80 }, 'b7d7cbb5', 'dc2835f7'], // 95 across, capped to 80
     ];
     for (const [spec, data, biome] of golden) {
       const isl = generateIsland(spec);

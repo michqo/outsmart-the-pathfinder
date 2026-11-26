@@ -318,9 +318,5 @@ export class Editor {
   }
 }
 
-/**
- * Materials the player can place, in hotbar order (keys 1–8). Timber, magma and snow are
- * the generator's. Frost (ice) too: any ice lowers the bot's estimate over the whole course,
- * so a single placed block would inflate every score.
- */
+/** Materials the player can place, in hotbar order (keys 1–8). Timber, magma and snow are the generator's. */
 export const HOTBAR_MATS: Mat[] = [Mat.Grass, Mat.Soil, Mat.Stone, Mat.Crystal, Mat.Water, Mat.Sand, Mat.Mud, Mat.Leaves];

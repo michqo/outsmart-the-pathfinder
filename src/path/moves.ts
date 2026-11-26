@@ -7,7 +7,7 @@ import { Mat, SOLID } from '../world/materials';
  * A node is either a dry stand (feet + head in air, solid floor) or a swim spot
  * (feet in water, head in air: the bot floats at the surface).
  *
- * Materials matter: walking on ice is cheap and on mud slow; sand digs easily and timber
+ * Materials matter: walking on mud is slow; sand digs easily and timber
  * slowly; snow is a little slow underfoot; leaves are pushed through (slowly) and can't be stood on; magma is never entered,
  * stood on or dug.
  *
@@ -61,7 +61,6 @@ export const HARDNESS: readonly number[] = (() => {
   h[Mat.Placed] = 1;
   h[Mat.Stone] = 4;
   h[Mat.Sand] = 0.5;
-  h[Mat.Ice] = 1;
   h[Mat.Mud] = 1;
   h[Mat.Timber] = 2;
   h[Mat.Snow] = 0.5;
@@ -69,16 +68,16 @@ export const HARDNESS: readonly number[] = (() => {
   return h;
 })();
 
-/** Walking cost multiplier by the floor you walk onto. Indexed by Mat id. */
+/**
+ * Walking cost multiplier by the floor you walk onto. Indexed by Mat id. Never below 1, so
+ * the plain octile heuristic stays admissible.
+ */
 export const FLOOR_COST: readonly number[] = (() => {
   const f = new Array<number>(16).fill(1);
-  f[Mat.Ice] = 0.6;
   f[Mat.Mud] = 2;
   f[Mat.Snow] = 1.3;
   return f;
 })();
-/** The cheapest floor multiplier (keeps the heuristic admissible when there's ice). */
-export const MIN_FLOOR_COST = Math.min(...FLOOR_COST);
 
 /** Extra cost for each leaf cell (feet or head) the bot pushes through. */
 export const LEAF_COST = 0.25;
@@ -216,20 +215,12 @@ export function isMoveValid(
  * Admissible estimate: horizontal octile distance, plus the extra each level
  * up (a step-up costs 1 more than a walk) or down (0.5 per block dropped) adds.
  * Every world-changing move costs at least as much as the plain move it replaces.
- *
- * `floor` is the cheapest walking multiplier on the course (MIN_FLOOR_COST when there's
- * ice): the horizontal part is scaled by it so the estimate never overshoots, which is
- * why ice makes the bot think harder.
  */
-export function heuristic(x: number, y: number, z: number, gx: number, gy: number, gz: number, floor = 1): number {
+export function heuristic(x: number, y: number, z: number, gx: number, gy: number, gz: number): number {
   const dx = Math.abs(gx - x), dz = Math.abs(gz - z);
   const lo = Math.min(dx, dz), hi = Math.max(dx, dz);
   const dy = gy - y;
   const vertical = dy > 0 ? dy * (COST.stepUp - COST.walk) : -dy * COST.dropPerBlock;
-  return ((hi - lo) * COST.walk + lo * COST.diagonal) * floor + vertical;
+  return (hi - lo) * COST.walk + lo * COST.diagonal + vertical;
 }
 
-/** The heuristic's floor factor for a course: MIN_FLOOR_COST if it has any ice. */
-export function floorFactor(data: Uint8Array | undefined): number {
-  return data && data.includes(Mat.Ice) ? MIN_FLOOR_COST : 1;
-}

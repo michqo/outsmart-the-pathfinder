@@ -2,14 +2,11 @@
 
 Build a course on a floating voxel island, then press **Space** and watch a little bot plan its route with A\*. Every cell it considers lights up in 3D. Your goal is to make it **think as hard as possible**: the score is the number of nodes it expands, and a run only counts if it still reaches the flag.
 
-The bot isn't helpless. It can dig (slate and timber are slow, crystal can't be dug), swim, push through canopy leaves, and spend its blocks to bridge gaps and climb. Floors matter: frost is quick to cross, bog and snow slow it down, and ember (magma) is never stepped on. Edit the course while it walks and it has to replan live. In challenges, editing after pressing Run makes it a practice run: it won't earn stars or set a best.
+The bot isn't helpless. It can dig (slate and timber are slow, crystal can't be dug), swim, push through canopy leaves, and spend its blocks to bridge gaps and climb. Floors matter: bog and snow slow it down, and ember (magma) is never stepped on. Edit the course while it walks and it has to replan live. On an island, editing after pressing Run makes it a practice run: it won't earn stars or set a best.
 
 - **An archipelago of generated islands:** every island is a challenge with an edit budget and ★★★ targets. Zoom out to see the neighbouring islands floating in the haze; earn a ★ to grow bridges to them, then tap one to fly there. Difficulty rises with each ring away from home. Each day brings a new archipelago (the same for everyone), or enter a seed or choose **Random** in **Levels**.
-- **Share links:** an island plus your best (a short link), or a whole sandbox course packed into the URL, so you can dare a friend
-- Free-build sandboxes with no limits
-- **Weighted A\*** slider in sandboxes, to see how greed trades nodes for path quality
-- **Algorithm Duel:** compare A* against Dijkstra, Weighted A*, or Pareto A*. The table shows states expanded, planned cost, and active worker time. The visual traces play at the same event rate, so a shorter trace finishes sooner; playback is not a compute benchmark.
-- **Riftworks:** open **Levels → Riftworks** for a seeded, 36-room maze with rising terraces, flood pools, diggable gates, and bridge shortcuts. Enter a seed to reproduce a layout or choose **Random** for another. **Heuristic Trap** is a separate six-edit puzzle.
+- **Free build:** a sandbox island with no limits, where you can also drag the bot and the flag
+- **Algorithm Duel:** on any island, compare A* against Dijkstra or Weighted A* on the same course. The table shows states expanded, planned cost, and active worker time. The visual traces play at the same event rate, so a shorter trace finishes sooner; playback is not a compute benchmark.
 - **How islands are made:** eroded hills with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands, forest, snowy peaks, desert, volcanic). Each island has its own time of day (dawn, day, dusk or night) and its own ambient sounds. Each island is surveyed the first time you land (up to a few seconds) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. A seed gives the same islands and stars on every device; touch devices get smaller islands.
 - Works with mouse, trackpad and touch
 - Requires WebGL 2. The island is playable with simple graphics while the detailed textures load in the background.
@@ -34,20 +31,6 @@ npm run dev        # http://localhost:5174
 npm test           # vitest: A*, moves, meshing, codec, levels
 npm run build      # static site in dist/
 ```
-
-Re-calibrate the star targets after changing a level:
-
-```bash
-CALIBRATE=1 npx vitest run tests/levels.test.ts
-```
-
-Benchmark Riftworks seed 47:
-
-```bash
-BENCHMARK=1 npm test -- --reporter=verbose tests/duel.test.ts
-```
-
-Pareto A* skips a state when the bot can reach the same cell at no higher cost with more blocks remaining. That preserves the cheapest route on the planner's fixed world snapshot; the duel still replays each route on a separate copy to catch invalid plans involving digs or placements. Worker timings vary by device and run.
 
 Stack: TypeScript, three.js, Vite, Vitest. A\* runs in a Web Worker. See `PLAN.md` for the design notes and milestones.
 

@@ -1,6 +1,6 @@
 import type { Dims } from '../world/world';
 import { MinHeap } from './heap';
-import { expandMoves, floorFactor, heuristic, MoveKind, type Grid, type MoveSink } from './moves';
+import { expandMoves, heuristic, MoveKind, type Grid, type MoveSink } from './moves';
 
 /** High bit in an event marks "closed"; otherwise the cell was just opened. Events carry cell ids. */
 export const CLOSED_FLAG = 0x80000000;
@@ -100,8 +100,6 @@ export class AStar {
   status: SearchStatus = 'running';
   /** States expanded (a cell can be expanded once per inventory count). */
   expanded = 0;
-  /** Heuristic scale for the cheapest floor on this course (ice makes it < 1). */
-  private floor: number;
 
   constructor(
     private grid: Grid & Dims,
@@ -109,9 +107,7 @@ export class AStar {
     private goal: readonly [number, number, number],
     private weight = 1,
     blocks = 0,
-    private pruneDominated = false,
   ) {
-    this.floor = floorFactor((grid as { data?: Uint8Array }).data);
     this.sx = grid.sx;
     this.sy = grid.sy;
     this.sz = grid.sz;
@@ -143,7 +139,6 @@ export class AStar {
       const cell = Math.floor(key / stride);
       const blocks = key - cell * stride;
       ns.closed[n] = 1;
-      if (this.pruneDominated && this.dominated(cell, blocks, ns.g[n])) continue;
       this.expanded++;
       this.pushEvent(cell | CLOSED_FLAG);
       if (cell === this.goalCell) {
@@ -166,8 +161,7 @@ export class AStar {
     const blocks = this.curBlocks - used;
     const key = cell * this.stride + blocks;
     const ns = this.nodes;
-    const g = this.curG + (this.pruneDominated ? Math.round(cost * 100) : cost);
-    if (this.pruneDominated && this.dominated(cell, blocks, g)) return;
+    const g = this.curG + cost;
     let n = ns.find(key);
     if (n >= 0) {
       if (ns.closed[n] || g >= ns.g[n]) return;
@@ -183,20 +177,10 @@ export class AStar {
 
   private estimate(x: number, y: number, z: number): number {
     if (this.weight === 0) return 0;
-    const h = heuristic(x, y, z, this.goal[0], this.goal[1], this.goal[2], this.floor);
-    return this.weight * (this.pruneDominated ? Math.round(h * 100) : h);
+    const h = heuristic(x, y, z, this.goal[0], this.goal[1], this.goal[2]);
+    return this.weight * h;
   }
 
-  // More blocks never disable a move. A cheaper arrival with more blocks can
-  // therefore replace this one on the fixed planning snapshot.
-  private dominated(cell: number, blocks: number, cost: number): boolean {
-    const first = cell * this.stride;
-    for (let key = first + blocks + 1; key < first + this.stride; key++) {
-      const n = this.nodes.find(key);
-      if (n >= 0 && this.nodes.g[n] <= cost) return true;
-    }
-    return false;
-  }
 
   /** Emits an "opened" event the first time a cell is seen (whatever the inventory). */
   private openCell(cell: number): void {
@@ -230,7 +214,7 @@ export class AStar {
     return {
       nodes: Int32Array.from(chain, (n) => Math.floor(ns.key[n] / this.stride)),
       kinds: Uint8Array.from(chain, (n) => ns.kind[n]),
-      cost: ns.g[this.goalNode] / (this.pruneDominated ? 100 : 1),
+      cost: ns.g[this.goalNode],
     };
   }
 
