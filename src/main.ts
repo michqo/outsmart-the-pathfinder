@@ -12,12 +12,11 @@ import { archPosition, islandProgress, recordIsland, setArchPosition, starredCou
 import { SkyIslands, type SkyBridge, type SkyIsland } from './render/skyIslands';
 import { TIME_LIGHT, timeOfDayFor, type TimeOfDay } from './render/timeOfDay';
 import { Drift } from './render/drift';
-import { Biome } from './gen/island';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
 import { AlgorithmDuel, type DuelOpponent } from './path/duel';
 import { openLevelsDialog, ScorePanel } from './ui/scorePanel';
-import { Sfx, type Ambience } from './audio/sfx';
+import { Sfx } from './audio/sfx';
 import { Corner } from './ui/corner';
 import { HowTo } from './ui/howTo';
 import { EditHistory } from './edit/history';
@@ -724,21 +723,6 @@ function startArchipelago(): void {
 }
 
 /** The ambient bed for a course: its time, and how much of it is forest, snow, sand, lava or water. */
-function ambienceFor(level: Level, time: TimeOfDay): Ambience {
-  const share = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  let land = 0;
-  if (level.biome) for (const b of level.biome) if (b) (share[b]++, land++);
-  const f = (b: number) => (land ? share[b] / land : 0);
-  return {
-    time,
-    forest: level.biome ? f(Biome.Forest) : 0.3,
-    snowy: f(Biome.Snowy),
-    desert: f(Biome.Desert),
-    volcanic: f(Biome.Volcanic),
-    wet: f(Biome.Wetlands),
-  };
-}
-
 /** Lanterns at the start and flag, and a lamp on the bot, after dark. */
 const lanterns = [0, 1].map(() => {
   const l = new THREE.PointLight(0xffb45e, 0, 16, 1.4);
@@ -799,7 +783,6 @@ function applyCourse(c: Course, compare = false): void {
     timeOfDay = time;
     applyPalette();
   }
-  sfx.setAmbience(ambienceFor(c.level, time));
   drift.set(world, c.level.biome, time);
   history.clear();
   touched.clear();

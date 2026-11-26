@@ -43,3 +43,5 @@ It's a plain static Vite build: on Vercel, import the GitHub repo and use the Vi
 ## Credits
 
 Textures and sky: [Poly Haven](https://polyhaven.com) (CC0). Characters: [Blocky Characters](https://kenney.nl/assets/blocky-characters) by Kenney (CC0). Details in `public/assets/CREDITS.md`.
+
+Sound effects: [Kenney](https://kenney.nl) Impact Sounds and Interface Sounds (CC0).
