@@ -4,12 +4,13 @@ Build a course on a floating voxel island, then press **Space** and watch a litt
 
 The bot isn't helpless. It can dig (slate is slow, crystal can't be dug), swim, and spend its blocks to bridge gaps and climb. Edit the course while it walks and it has to replan live. In challenges, editing after pressing Run makes it a practice run: it won't earn stars or set a best.
 
-- **6 challenge levels** with edit budgets and ★★★ targets, plus free-build sandboxes
-- **Share links:** the whole course (or the level plus your best) packed into the URL, so you can dare a friend
+- **An archipelago of generated islands:** every island is a challenge with an edit budget and ★★★ targets. Zoom out to see the neighbouring islands floating in the haze; earn a ★ to grow bridges to them, then tap one to fly there. Difficulty rises with each ring away from home. Each day brings a new archipelago (the same for everyone), or enter a seed or choose **Random** in **Levels**.
+- **Share links:** an island plus your best (a short link), or a whole sandbox course packed into the URL, so you can dare a friend
+- Free-build sandboxes with no limits
 - **Weighted A\*** slider in sandboxes, to see how greed trades nodes for path quality
 - **Algorithm Duel:** compare A* against Dijkstra, Weighted A*, or Pareto A*. The table shows states expanded, planned cost, and active worker time. The visual traces play at the same event rate, so a shorter trace finishes sooner; playback is not a compute benchmark.
 - **Riftworks:** open **Levels → Riftworks** for a seeded, 36-room maze with rising terraces, flood pools, diggable gates, and bridge shortcuts. Enter a seed to reproduce a layout or choose **Random** for another. **Heuristic Trap** is a separate six-edit puzzle.
-- **Generated islands:** open **Levels → Generated island** for an eroded island with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands). Pick a tier from 1 to 5: the island is surveyed (a few seconds, the first time only) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. Each seed gives the same island and stars on every device; touch devices get a smaller footprint.
+- **How islands are made:** eroded hills with rivers, lakes and biomes (meadow, highlands, crystal fields, wetlands, badlands). Each island is surveyed the first time you land (up to a few seconds) for a start and flag that make the bot think, an edit budget, blocks, and star targets that a hill-climbing player is proven to reach. A seed gives the same islands and stars on every device; touch devices get smaller islands.
 - Works with mouse, trackpad and touch
 - Requires WebGL 2. The island is playable with simple graphics while the detailed textures load in the background.
 

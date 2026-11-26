@@ -142,3 +142,58 @@ export function courseFromHash(hash: string): string | null {
   const h = hash.replace(/^#/, '');
   return h.startsWith(HASH_KEY) ? h.slice(HASH_KEY.length) : null;
 }
+
+// ---------------------------------------------------------------- v2: archipelago islands
+
+/**
+ * A dare on an archipelago island. The island, its route and stars all follow from the
+ * seed, so the link is tiny. Bytes: 2, generator version, tuning version, seed (u32 LE),
+ * ix, iz (i16 LE), size cap (u8, 0 = none), dare (u32 LE).
+ */
+export interface SharedIsland {
+  seed: number;
+  ix: number;
+  iz: number;
+  /** Touch-device size cap the sharer played at (0 = full size). */
+  cap: number;
+  dare: number;
+  /** Generator and tuning versions of the sharer's game (a mismatch means a different island). */
+  genVersion: number;
+  tuneVersion: number;
+}
+
+const ISLAND_VERSION = 2;
+
+export async function encodeIsland(s: SharedIsland): Promise<string> {
+  const b = new Uint8Array(16);
+  const dv = new DataView(b.buffer);
+  b[0] = ISLAND_VERSION;
+  b[1] = s.genVersion & 0xff;
+  b[2] = s.tuneVersion & 0xff;
+  dv.setUint32(3, s.seed >>> 0, true);
+  dv.setInt16(7, s.ix, true);
+  dv.setInt16(9, s.iz, true);
+  b[11] = Math.max(0, Math.min(255, s.cap | 0));
+  dv.setUint32(12, Math.max(0, Math.min(0xffffffff, Math.round(s.dare))), true);
+  return toBase64Url(await pipe(b, new CompressionStream('deflate-raw')));
+}
+
+/** Any share link: v1 (hand-made levels, sandboxes, Riftworks) or v2 (an archipelago island). */
+export async function decodeLink(text: string): Promise<{ v: 1; level: SharedLevel } | { v: 2; island: SharedIsland }> {
+  const bytes = await pipe(fromBase64Url(text), new DecompressionStream('deflate-raw'));
+  if (bytes[0] === VERSION) return { v: 1, level: await decodeLevel(text) };
+  if (bytes[0] !== ISLAND_VERSION || bytes.length < 16) throw new Error('unsupported link version');
+  const dv = new DataView(bytes.buffer, bytes.byteOffset);
+  return {
+    v: 2,
+    island: {
+      genVersion: bytes[1],
+      tuneVersion: bytes[2],
+      seed: dv.getUint32(3, true),
+      ix: dv.getInt16(7, true),
+      iz: dv.getInt16(9, true),
+      cap: bytes[11],
+      dare: dv.getUint32(12, true),
+    },
+  };
+}

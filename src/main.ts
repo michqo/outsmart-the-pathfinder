@@ -2,13 +2,16 @@ import * as THREE from 'three';
 import { BotController } from './bot/controller';
 import { Editor, HOTBAR_MATS } from './edit/editor';
 import { Handles } from './edit/handles';
-import { courseFromHash, decodeLevel, encodeLevel, HASH_KEY } from './levels/codec';
-import { HEURISTIC_TRAP, ISLAND_SEED, islandLevel, LEVELS, levelById, riftworksLevel, SANDBOXES, type Level } from './levels/levels';
+import { courseFromHash, decodeLink, encodeIsland, encodeLevel, HASH_KEY } from './levels/codec';
+import { HEURISTIC_TRAP, islandLevel, LEVELS, levelById, riftworksLevel, SANDBOXES, starsFor, type Level } from './levels/levels';
 import { IslandClient } from './gen/client';
-import { ISLAND_SIZE } from './gen/island';
-import { TIERS } from './gen/tune';
+import { archRadius, archSpec, dailyLabel, dailySeed, islandAt, islandsAround, isOpen, neighbours, type ArchIsland } from './gen/archipelago';
+import { generateIsland, GEN_VERSION, ISLAND_SIZE, islandKey, islandParams } from './gen/island';
+import { TUNE_VERSION, tuneIsland } from './gen/tune';
 import { cachedTuning, storeTuning } from './gen/tuneCache';
-import { bestFor, bestScores, lastLevel, recordScore, setLastLevel } from './levels/progress';
+import { archPosition, islandProgress, recordIsland, setArchPosition, starredCount } from './levels/archProgress';
+import { SkyIslands, type SkyBridge, type SkyIsland } from './render/skyIslands';
+import { bestFor, bestScores, recordScore, setLastLevel } from './levels/progress';
 import { defaultSpawn } from './levels/spawn';
 import type { Vec3i } from './path/protocol';
 import { AlgorithmDuel, type DuelOpponent } from './path/duel';
@@ -66,6 +69,8 @@ const stats: Stats = { fps: 0, frameMs: 0, triangles: 0, remeshMs: 0, undersideM
 const stage = createStage();
 const world = new World();
 const chunks = new ChunkRenderer(world);
+/** The rest of the archipelago, drawn around the current island. */
+const skyIslands = new SkyIslands();
 const sky = new Sky();
 stage.island.add(chunks.group);
 stage.scene.add(sky.group);
@@ -182,6 +187,8 @@ function applyPalette(): void {
   chunks.setPalette(p, settings.grassStyle);
   sky.setPalette(p);
   sky.setReal(real ? (assets!.env as THREE.DataTexture) : null, settings.envIntensity, real ? assets!.sunDir : undefined);
+  skyIslands.setPalette(p, settings.grassStyle);
+  skyIslands.setHaze(sky.hazeColor());
   stage.scene.environment = real ? assets!.env : null;
   stage.scene.environmentIntensity = settings.envIntensity;
   stage.hemi.visible = !real;
@@ -365,10 +372,24 @@ let opponent: DuelOpponent = 'dijkstra';
 
 const score = new ScorePanel({
   onLevels: (opener) =>
-    openLevelsDialog(LEVELS, SANDBOXES, bestScores(), course.level.id, (l) => {
-      clearHash();
-      if (l.kind === 'island') void startIsland(l.seed);
-      else startLevel(l);
+    openLevelsDialog({
+      arch: { seed: archSeed, daily: archSeed === dailySeed(), dailyLabel: dailyLabel(), starred: starredCount(archSeed), away: !archHere },
+      sandboxes: SANDBOXES,
+      best: bestScores(),
+      current: course.level.id,
+      onPick: (l) => {
+        clearHash();
+        startLevel(l);
+      },
+      onArch: (action, seed) => {
+        clearHash();
+        if (action === 'here') void goToIsland(archSeed, lastArchIsland(), false);
+        else if (action === 'home') void goToIsland(archSeed, islandAt(archSeed, 0, 0)!, true);
+        else {
+          const next = action === 'daily' ? dailySeed() : action === 'random' ? crypto.getRandomValues(new Uint32Array(1))[0] : seed!;
+          void goToIsland(next, islandAt(next, 0, 0)!, false);
+        }
+      },
     }, opener),
   onReset: () => applyCourse(course, duelActive),
   onShare: () => void share(),
@@ -383,14 +404,13 @@ const score = new ScorePanel({
     duel?.clear();
     score.setDuel(true, false, opponent);
   },
-  onSeed: (seed, tier) => {
+  onSeed: (seed) => {
     if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
       score.toast('Enter a whole seed from 0 to 4,294,967,295.');
       return;
     }
     clearHash();
-    if (course.level.kind === 'island') void startIsland(seed, tier);
-    else startLevel(riftworksLevel(seed));
+    startLevel(riftworksLevel(seed));
   },
 });
 
@@ -463,6 +483,7 @@ function onRunEnd(arrived: boolean, nodes: number, edited: boolean): void {
   let newBest = false;
   if (arrived && !practice) {
     if (level.budget !== null) newBest = recordScore(level.id, nodes);
+    if (archHere && level.kind === 'island') islandResult(archHere, starsFor(level, nodes), nodes);
     else if (nodes > sandboxBest) (sandboxBest = nodes), (newBest = true);
     lastScore = nodes;
   }
@@ -479,50 +500,217 @@ function startLevel(level: Level, dare = 0): void {
 }
 
 const islands = new IslandClient();
-let islandRequest = 0;
 /**
  * Touch devices get smaller islands from the same seed (see PLAN.md, M8). Decided by the
  * input, not the window width, so resizing a desktop window never changes the island.
  */
 const islandCap = matchMedia('(pointer: coarse)').matches ? ISLAND_SIZE.phone : undefined;
 
-const TIER_KEY = 'pathfinder.tier';
-/** The tier picked last (1–5), so the next island opens at the same difficulty. */
-let islandTier = (() => {
-  try {
-    const t = Number(localStorage.getItem(TIER_KEY));
-    return t >= 1 && t <= TIERS.length ? t : 2;
-  } catch {
-    return 2;
+// ---------------------------------------------------------------- archipelago
+
+/** The archipelago being played (its seed), and the island you're on (null = elsewhere). */
+let archSeed = dailySeed();
+let archHere: ArchIsland | null = null;
+let archRequest = 0;
+let flight: { from: THREE.Vector3; to: THREE.Vector3; t: number; done: () => void } | null = null;
+stage.scene.add(skyIslands.group);
+skyIslands.onPick = (a) => void goToIsland(archSeed, a, true);
+
+const inArchipelago = () => archHere !== null;
+const starsOn = (a: ArchIsland) => islandProgress(archSeed, a.ix, a.iz, islandCap).stars;
+const archName = (a: ArchIsland) => (a.ring === 0 ? 'Home island' : `Island ${a.ix}, ${a.iz}`);
+
+/** The island you were last on in this archipelago (home if none). */
+function lastArchIsland(): ArchIsland {
+  const pos = archPosition();
+  return (pos?.seed === archSeed && islandAt(archSeed, pos.at[0], pos.at[1])) || islandAt(archSeed, 0, 0)!;
+}
+
+function archLevel(a: ArchIsland, spec: ReturnType<typeof archSpec>, island: Parameters<typeof islandLevel>[1], tuning: Parameters<typeof islandLevel>[2]): Level {
+  const level = islandLevel(spec, island, tuning, archName(a));
+  level.hint = `${level.hint} Zoom out to see the other islands; ★ here opens bridges to its neighbours.`;
+  return level;
+}
+
+/** Generates and surveys an island (cached surveys skip the work). */
+async function loadArchIsland(seed: number, a: ArchIsland, onProgress: (f: number) => void): Promise<Level> {
+  const spec = archSpec(seed, a, islandCap);
+  const cached = cachedTuning(spec, a.tier);
+  const { island, tuning } = await islands.generate(spec, cached ? undefined : a.tier, onProgress);
+  const t = cached ?? tuning!;
+  if (!cached) storeTuning(spec, t);
+  return archLevel(a, spec, island, t);
+}
+
+/** Window scale (as in fitStage) of an island, without generating it. */
+const windowScale = (seed: number, a: ArchIsland) => (Math.ceil((islandParams(archSpec(seed, a, islandCap)).size + 8) / 16) * 16) / 64;
+
+/** Travels to an island: flies there over the sky when it's in view, else just loads it. */
+async function goToIsland(seed: number, a: ArchIsland, fly: boolean, dare = 0): Promise<void> {
+  const req = ++archRequest;
+  if (seed !== archSeed || !archHere) fly = false;
+  if (archHere && seed === archSeed && a.ix === archHere.ix && a.iz === archHere.iz && course.level.kind === 'island') return;
+  let pct = -1;
+  const loading = loadArchIsland(seed, a, (f) => {
+    const n = Math.round(f * 100);
+    if (n >= pct + 10 || n === 100) score.toast(`Surveying the island… ${(pct = n)}%`);
+  });
+  let offset: THREE.Vector3 | null = null;
+  if (fly) {
+    offset = skyIslands.position(a);
+    offset.y = 0;
+    await flyTo(offset, windowScale(seed, a) / stageScale);
   }
-})();
+  let level: Level;
+  try {
+    level = await loading;
+  } catch (err) {
+    console.error('Could not load the island', err);
+    score.toast("That island couldn't be made");
+    if (offset) snapCamera(offset.negate());
+    stage.controls.enabled = true;
+    return;
+  }
+  if (req !== archRequest) return;
+  if (offset) snapCamera(offset);
+  stage.controls.enabled = true;
+  archSeed = seed;
+  arriveAt(a, level, dare, !!offset);
+}
+
+/** Animates the camera's target over to `to` (keeping its angle; `zoom` scales the distance). */
+function flyTo(to: THREE.Vector3, zoom: number): Promise<void> {
+  const { controls } = stage;
+  controls.enabled = false;
+  return new Promise((done) => {
+    flight = { from: controls.target.clone(), to: to.clone().add(new THREE.Vector3(0, controls.target.y, 0)), t: 0, done };
+    flightZoom = zoom;
+  });
+}
+let flightZoom = 1;
+let flightDist = 0;
+
+function updateFlight(dt: number): void {
+  if (!flight) return;
+  const { camera, controls } = stage;
+  if (flight.t === 0) flightDist = camera.position.distanceTo(controls.target);
+  flight.t = Math.min(1, flight.t + dt / 1.6);
+  const e = flight.t < 0.5 ? 2 * flight.t * flight.t : 1 - (-2 * flight.t + 2) ** 2 / 2;
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  // Rise a little mid-flight so the hop reads as travel.
+  const dist = flightDist * (1 + (flightZoom - 1) * e) * (1 + 0.6 * Math.sin(Math.PI * e));
+  controls.target.lerpVectors(flight.from, flight.to, e);
+  camera.position.copy(controls.target).addScaledVector(dir, dist);
+  if (flight.t >= 1) {
+    const done = flight.done;
+    flight = null;
+    done();
+  }
+}
+
+/** Moves the view by -`by` (the new island is drawn where the old one was). */
+function snapCamera(by: THREE.Vector3): void {
+  stage.camera.position.sub(by);
+  stage.controls.target.sub(by);
+}
+
+function arriveAt(a: ArchIsland, level: Level, dare: number, flown: boolean): void {
+  if (flown) stageScale = windowScale(archSeed, a); // the flight already zoomed the camera
+  archHere = a;
+  skyIslands.setOrigin(a.centre);
+  startLevel(level, dare);
+  setArchPosition(archSeed, [a.ix, a.iz]);
+  refreshSky();
+}
+
+function leaveArchipelago(): void {
+  if (!archHere) return;
+  archHere = null;
+  archRequest++;
+  skyIslands.setIslands([]);
+  skyIslands.setBridges([]);
+}
+
+/** Rebuilds the islands and bridges in view; bridges touching `freshFrom` grow in. */
+function refreshSky(freshFrom?: ArchIsland, before?: Map<string, number>): void {
+  const here = archHere;
+  if (!here) return;
+  const seed = archSeed;
+  const list = islandsAround(seed, here.ix, here.iz, 2);
+  const stars = new Map(list.map((a) => [`${a.ix},${a.iz}`, starsOn(a)]));
+  const starsOf = (a: ArchIsland) => stars.get(`${a.ix},${a.iz}`) ?? starsOn(a);
+  const infos = new Map<string, SkyIsland>();
+  for (const a of list)
+    infos.set(`${a.ix},${a.iz}`, {
+      a,
+      radius: archRadius(archSpec(seed, a, islandCap)),
+      open: isOpen(seed, a, starsOf),
+      stars: starsOf(a),
+      current: a.ix === here.ix && a.iz === here.iz,
+    });
+  const missing = skyIslands.setIslands([...infos.values()]);
+  void (async () => {
+    for (const a of missing) {
+      try {
+        const lod = await islands.lod(archSpec(seed, a, islandCap));
+        if (archSeed !== seed || !archHere) return;
+        skyIslands.provide(a, lod);
+      } catch (err) {
+        console.warn('No distant view for an island', err);
+      }
+    }
+  })();
+  const bridges: SkyBridge[] = [];
+  const seen = new Set<string>();
+  for (const info of infos.values())
+    for (const n of neighbours(seed, info.a)) {
+      const other = infos.get(`${n.ix},${n.iz}`);
+      if (!other) continue;
+      const k = [info, other].map((i) => `${i.a.ix},${i.a.iz}`).sort().join('|');
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (!info.stars && !other.stars) continue;
+      const touches = !!freshFrom && [info, other].some((i) => i.a.ix === freshFrom.ix && i.a.iz === freshFrom.iz);
+      const wasOpen = !!before && [info, other].some((i) => (before.get(`${i.a.ix},${i.a.iz}`) ?? 0) > 0);
+      bridges.push({ a: info, b: other, fresh: touches && !wasOpen });
+    }
+  skyIslands.setBridges(bridges);
+}
+
+/** A finished run on an archipelago island: record stars, open bridges on the first ★. */
+function islandResult(a: ArchIsland, stars: number, nodes: number): void {
+  const had = starsOn(a);
+  const before = new Map(islandsAround(archSeed, a.ix, a.iz, 2).map((b) => [`${b.ix},${b.iz}`, starsOn(b)]));
+  recordIsland(archSeed, a.ix, a.iz, islandCap, nodes, stars);
+  if (had > 0 || stars === 0) return;
+  const opened = neighbours(archSeed, a).filter((b) => !isOpen(archSeed, b, (c) => (c.ix === a.ix && c.iz === a.iz ? 0 : starsOn(c)))).length;
+  refreshSky(a, before);
+  if (opened) setTimeout(() => score.toast(`Bridges open: ${opened} new island${opened === 1 ? '' : 's'}. Zoom out to travel.`), 1600);
+}
 
 /**
- * Generates an island in the worker and opens it as a challenge at a tier. The first time
- * an island is played at a tier it's surveyed (route + stars, a few seconds); after that the
- * survey comes from the cache. A newer request wins.
+ * First load: the island you were on (or home of today's archipelago). Generated on the
+ * main thread so the first frame has terrain; uncached surveys go to the worker.
  */
-async function startIsland(seed = course?.level.kind === 'island' ? course.level.seed : undefined, tier = islandTier): Promise<void> {
-  const id = ++islandRequest;
-  islandTier = tier;
-  try {
-    localStorage.setItem(TIER_KEY, String(tier));
-  } catch {
-    // ignore
-  }
-  try {
-    const spec = { seed: seed ?? ISLAND_SEED, ix: 0, iz: 0, maxSize: islandCap };
-    const cached = cachedTuning(spec, tier);
-    score.toast(cached ? 'Raising the island…' : 'Surveying the island…');
-    const { island, tuning } = await islands.generate(spec, cached ? undefined : tier, (f) => {
-      if (id === islandRequest) score.toast(`Surveying the island… ${Math.round(f * 100)}%`);
-    });
-    if (id !== islandRequest) return;
-    if (tuning) storeTuning(spec, tuning);
-    startLevel(islandLevel(spec.seed, island, islandCap, cached ?? tuning));
-  } catch (err) {
-    console.warn('Island generation failed', err);
-    score.toast("That island couldn't be generated");
+function startArchipelago(): void {
+  const pos = archPosition();
+  archSeed = pos?.seed ?? dailySeed();
+  const target = (pos && islandAt(archSeed, pos.at[0], pos.at[1])) || islandAt(archSeed, 0, 0)!;
+  const home = islandAt(archSeed, 0, 0)!;
+  for (const a of target === home ? [home] : [target, home]) {
+    const spec = archSpec(archSeed, a, islandCap);
+    let tuning = cachedTuning(spec, a.tier);
+    if (!tuning && a !== home) continue;
+    const island = generateIsland(spec);
+    if (!tuning) {
+      const w = new World(island.dims.sx, island.dims.sy, island.dims.sz);
+      w.data.set(island.data);
+      tuning = tuneIsland(w, a.tier, islandKey(spec));
+      storeTuning(spec, tuning);
+    }
+    arriveAt(a, archLevel(a, spec, island, tuning), 0, false);
+    if (a !== target) void goToIsland(archSeed, target, false);
+    return;
   }
 }
 
@@ -538,7 +726,8 @@ function fitStage(): void {
   sc.right = sc.top = 55 * k;
   sc.far = 200 * k;
   sc.updateProjectionMatrix();
-  stage.controls.maxDistance = 220 * k;
+  // In the archipelago you can zoom out far enough to see the neighbouring islands.
+  stage.controls.maxDistance = inArchipelago() ? Math.max(700, 220 * k) : 220 * k;
   // Pull the camera back (or in) by how much the window grew, keeping its angle.
   if (k !== stageScale) {
     const { camera, controls } = stage;
@@ -551,6 +740,7 @@ function fitStage(): void {
 /** Puts a course's world, spawn and rules in place (also what Reset does). */
 function applyCourse(c: Course, compare = false): void {
   course = c;
+  if (c.level.kind !== 'island') leaveArchipelago();
   bot.forgetChanges();
   if (!sameDims(world, c.dims)) world.reshape(c.dims.sx, c.dims.sy, c.dims.sz);
   world.data.set(c.world);
@@ -580,8 +770,12 @@ async function share(): Promise<void> {
   const { level } = course;
   const challenge = LEVELS.includes(level) || level === HEURISTIC_TRAP;
   const dare = level === HEURISTIC_TRAP ? 0 : challenge ? bestFor(level.id) : lastScore;
-  if (!challenge && (level.kind === 'island' || !sameDims(world, DEFAULT_DIMS))) {
-    score.toast('Island links arrive with the archipelago');
+  if (level.kind === 'island' && archHere) return copyLink(await encodeIsland({
+    seed: archSeed, ix: archHere.ix, iz: archHere.iz, cap: islandCap ?? 0, dare: bestFor(level.id),
+    genVersion: GEN_VERSION, tuneVersion: TUNE_VERSION,
+  }), bestFor(level.id));
+  if (!challenge && !sameDims(world, DEFAULT_DIMS)) {
+    score.toast("Islands this big can't be shared as a sandbox");
     return;
   }
   const text = await encodeLevel({
@@ -594,6 +788,10 @@ async function share(): Promise<void> {
     weight: bot.weight,
     dare,
   });
+  await copyLink(text, dare);
+}
+
+async function copyLink(text: string, dare: number): Promise<void> {
   const url = `${location.origin}${location.pathname}#${HASH_KEY}${text}`;
   window.history.replaceState(null, '', url);
   try {
@@ -613,7 +811,16 @@ async function openSharedCourse(): Promise<boolean> {
   const text = courseFromHash(location.hash);
   if (!text) return false;
   try {
-    const s = await decodeLevel(text);
+    const link = await decodeLink(text);
+    if (link.v === 2) {
+      const i = link.island;
+      const a = islandAt(i.seed, i.ix, i.iz);
+      if (!a) throw new Error('no island there');
+      if (i.genVersion !== GEN_VERSION || i.tuneVersion !== TUNE_VERSION) score.toast('This link is from another version of the game: the island may differ');
+      await goToIsland(i.seed, a, false, i.dare);
+      return true;
+    }
+    const s = link.level;
     if (s.mode === 'challenge') {
       const level = levelById(s.levelId);
       if (!level || level.budget === null) throw new Error(`unknown challenge ${s.levelId}`);
@@ -640,7 +847,7 @@ async function openSharedCourse(): Promise<boolean> {
   }
 }
 
-startLevel(levelById(lastLevel() ?? '') ?? LEVELS[0]);
+startArchipelago();
 void openSharedCourse();
 window.addEventListener('hashchange', () => void openSharedCourse());
 
@@ -651,7 +858,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Dev-only handle for poking at the scene from the console.
-if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, sky, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets, follow, history } });
+if (import.meta.env.DEV) Object.assign(window, { __app: { stage, world, chunks, sky, settings, editor, bot, applyPalette, applyQuality, post, getAssets: () => assets, follow, history, arch: { goToIsland, islandResult, here: () => archHere, seed: () => archSeed } } });
 
 // ---------------------------------------------------------------- loop
 
@@ -679,7 +886,10 @@ stage.renderer.setAnimationLoop((time) => {
   if (busy !== wasBusy) corner.setBusy((wasBusy = busy));
   follow.update(dt);
   sky.update(t);
+  updateFlight(dt);
   stage.controls.update();
+  const far = stage.camera.position.distanceTo(stage.controls.target) > 125 * stageScale;
+  skyIslands.update(dt, stage.camera, inArchipelago() && !flight && !busy && !duelActive && far);
   if (water) water.time.value = t;
   if (settings.quality === 'high') post.render(dt);
   else stage.renderer.render(stage.scene, stage.camera);

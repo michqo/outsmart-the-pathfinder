@@ -63,7 +63,6 @@ export class ChunkRenderer {
 
   setPalette(p: Palette, grassStyle: GrassStyle): void {
     this.palette = { p, grass: grassStyle };
-    const c = new THREE.Color();
     const t = this.opts.colorTable;
     if (this.real) {
       // Textures carry the colour; vertex colours then hold only the baked AO.
@@ -71,19 +70,7 @@ export class ChunkRenderer {
       this.world.markAllDirty();
       return;
     }
-    for (let m = 1; m < MAT_KEYS.length; m++) {
-      const key = MAT_KEYS[m];
-      if (key === 'water' || key === 'air') continue;
-      const f = p.blocks[key];
-      const kinds = key === 'grass' ? grassFaces(p, grassStyle) : [f.top, f.side, f.bottom, f.side];
-      kinds.forEach((hex, kind) => {
-        c.setHex(hex); // sRGB -> linear
-        const i = (m * COLOR_KINDS + kind) * 3;
-        t[i] = c.r;
-        t[i + 1] = c.g;
-        t[i + 2] = c.b;
-      });
-    }
+    fillColorTable(t, p, grassStyle);
     this.waterMaterial.color.setHex(p.water);
     this.waterMaterial.opacity = p.waterOpacity;
     this.world.markAllDirty();
@@ -176,3 +163,21 @@ export class ChunkRenderer {
   }
 }
 
+
+/** The palette's flat colours per material and face kind, in linear RGB, for the mesher. */
+export function fillColorTable(t: Float32Array, p: Palette, grassStyle: GrassStyle): void {
+  const c = new THREE.Color();
+  for (let m = 1; m < MAT_KEYS.length; m++) {
+    const key = MAT_KEYS[m];
+    if (key === 'water' || key === 'air') continue;
+    const f = p.blocks[key];
+    const kinds = key === 'grass' ? grassFaces(p, grassStyle) : [f.top, f.side, f.bottom, f.side];
+    kinds.forEach((hex, kind) => {
+      c.setHex(hex); // sRGB -> linear
+      const i = (m * COLOR_KINDS + kind) * 3;
+      t[i] = c.r;
+      t[i + 1] = c.g;
+      t[i + 2] = c.b;
+    });
+  }
+}

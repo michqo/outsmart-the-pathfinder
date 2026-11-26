@@ -1,9 +1,9 @@
 import type { Island, IslandSpec } from './island';
 import type { Tuning } from './tune';
-import type { GenReply } from './worker';
+import type { GenReply, LodIsland } from './worker';
 
 interface Pending {
-  resolve(r: { island: Island; tuning?: Tuning }): void;
+  resolve(r: { island: Island; tuning?: Tuning } | { lod: LodIsland }): void;
   reject(e: Error): void;
   onProgress?(f: number): void;
 }
@@ -16,6 +16,15 @@ export class IslandClient {
 
   /** Generates the island; with `tier`, also surveys it (start/flag, budget, stars). */
   generate(spec: IslandSpec, tier?: number, onProgress?: (f: number) => void): Promise<{ island: Island; tuning?: Tuning }> {
+    return this.request({ spec, tier }, onProgress) as Promise<{ island: Island; tuning?: Tuning }>;
+  }
+
+  /** A coarse copy for the distant view (`scale`× smaller on each axis). */
+  async lod(spec: IslandSpec, scale = 4): Promise<LodIsland> {
+    return ((await this.request({ spec, lod: scale })) as { lod: LodIsland }).lod;
+  }
+
+  private request(body: { spec: IslandSpec; tier?: number; lod?: number }, onProgress?: (f: number) => void) {
     if (!this.worker) {
       this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (e: MessageEvent<GenReply>) => {
@@ -25,6 +34,7 @@ export class IslandClient {
         if ('progress' in msg) return p.onProgress?.(msg.progress);
         this.pending.delete(msg.id);
         if ('island' in msg) p.resolve({ island: msg.island, tuning: msg.tuning });
+        else if ('lod' in msg) p.resolve({ lod: msg.lod });
         else p.reject(new Error(msg.error));
       };
       this.worker.onerror = (e) => {
@@ -33,9 +43,9 @@ export class IslandClient {
       };
     }
     const id = ++this.nextId;
-    return new Promise((resolve, reject) => {
+    return new Promise<{ island: Island; tuning?: Tuning } | { lod: LodIsland }>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onProgress });
-      this.worker!.postMessage({ id, spec, tier });
+      this.worker!.postMessage({ id, ...body });
     });
   }
 }

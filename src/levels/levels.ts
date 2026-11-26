@@ -34,6 +34,8 @@ export interface Level {
   kind?: 'riftworks' | 'island';
   /** Generated islands: the difficulty tier (1–5) when surveyed. */
   tier?: number;
+  /** Generated islands: which island of which archipelago. */
+  spec?: IslandSpec;
   /** Generated islands: per-column biome, for the terrain tint. */
   biome?: Uint8Array;
 }
@@ -192,7 +194,6 @@ export const SANDBOXES: Level[] = [
     stars: null,
     generate: generateGauntlet,
   },
-  islandLevel(),
 ];
 
 export const HEURISTIC_TRAP: Level = {
@@ -237,12 +238,12 @@ export function riftworksLevel(seed = RIFTWORKS_SEED): Level {
  * Pass `island` when it was already generated (in the worker); otherwise it's generated
  * synchronously on first use.
  */
-export function islandLevel(seed = ISLAND_SEED, island?: Island, maxSize?: number, tuning?: Tuning): Level {
-  const spec: IslandSpec = { seed, ix: 0, iz: 0, maxSize };
+export function islandLevel(spec: IslandSpec = { seed: ISLAND_SEED, ix: 0, iz: 0 }, island?: Island, tuning?: Tuning, name?: string): Level {
+  const seed = spec.seed;
   let made = island;
   return {
     id: tuning ? islandLevelId(spec, tuning.tier) : ISLAND_ID,
-    name: tuning ? `Island ${seed}` : 'Generated island',
+    name: name ?? (tuning ? `Island ${seed}` : 'Generated island'),
     hint: tuning
       ? `Tier ${tuning.tier}: ${tuning.budget} edits, ${tuning.blocks} blocks. Eroded hills, rivers, lakes and biomes, surveyed for a route that makes the bot think.`
       : 'A fresh island from the seed: eroded hills, rivers, lakes and biomes. Build on it, or try another seed.',
@@ -253,6 +254,7 @@ export function islandLevel(seed = ISLAND_SEED, island?: Island, maxSize?: numbe
     seed,
     kind: 'island',
     tier: tuning?.tier,
+    spec,
     get biome() {
       return made?.biome;
     },
@@ -269,7 +271,7 @@ export function islandLevel(seed = ISLAND_SEED, island?: Island, maxSize?: numbe
 
 /** Progress key: the island (and its size cap, which changes it) at a tier. */
 export function islandLevelId(spec: IslandSpec, tier: number): string {
-  return `island:${spec.seed}:t${tier}${spec.maxSize ? `:s${spec.maxSize}` : ''}`;
+  return `island:${spec.seed}:${spec.ix},${spec.iz}:t${tier}${spec.maxSize ? `:s${spec.maxSize}` : ''}`;
 }
 
 export function levelById(id: string): Level | undefined {

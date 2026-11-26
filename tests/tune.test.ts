@@ -71,11 +71,11 @@ describe('search-aware tuning', () => {
   it('a tuned island level is a challenge with the survey’s rules', () => {
     const spec = { seed: 2026, ix: 0, iz: 0 };
     const t = tuneIsland(load(spec), 2, islandKey(spec));
-    const level = islandLevel(2026, undefined, undefined, t);
-    expect(level.id).toBe('island:2026:t2');
+    const level = islandLevel(spec, undefined, t);
+    expect(level.id).toBe('island:2026:0,0:t2');
     expect([level.budget, level.inventory, level.stars, level.tier]).toEqual([t.budget, t.blocks, t.stars, 2]);
     const w = new World();
     expect(level.generate(w)).toEqual({ start: t.start, goal: t.goal });
-    expect(islandLevel(2026, undefined, 80, t).id).toBe('island:2026:t2:s80');
+    expect(islandLevel({ ...spec, ix: 2, iz: -1, maxSize: 80 }, undefined, t).id).toBe('island:2026:2,-1:t2:s80');
   });
 });

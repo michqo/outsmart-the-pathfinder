@@ -57,7 +57,6 @@ const CSS = /* css */ `
 .sp .duel .timing-note { margin: 4px 0; font-weight: 500; }
 .sp .seed-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
 .sp .seed-form input { width: 7em; min-height: 28px; box-sizing: border-box; font: inherit; }
-.sp .seed-form select { min-height: 32px; border: 0; border-radius: 8px; background: #ece8f4; color: inherit; font: inherit; padding: 0 6px; }
 .sp .seed-form button { min-height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: #ece8f4; color: inherit; font: inherit; cursor: pointer; }
 .sp .lv .tog { display: none; opacity: .5; }
 @media (max-width: 720px) {
@@ -92,6 +91,10 @@ const CSS = /* css */ `
 .lvd .card .s { color: #f5b301; letter-spacing: 2px; }
 .lvd .card .s .off { color: #d9d3e6; }
 .lvd .card small { opacity: .55; font-weight: 500; }
+.lvd .arch-sub { margin: -2px 0 10px; font-size: 13px; opacity: .65; }
+.lvd .arch-seed { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.lvd .arch-seed input { width: 9em; min-height: 32px; box-sizing: border-box; font: inherit; border: 1px solid #d9d3e6; border-radius: 8px; padding: 0 8px; }
+.lvd .arch-seed button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #ece8f4; color: inherit; font: inherit; cursor: pointer; }
 `;
 
 export interface ScorePanelHandlers {
@@ -102,7 +105,7 @@ export interface ScorePanelHandlers {
   onDuelToggle(): void;
   onOpponent(opponent: DuelOpponent): void;
   /** The seed box: `tier` is the tier picker's value (generated islands only). */
-  onSeed(seed: number, tier: number): void;
+  onSeed(seed: number): void;
 }
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -127,7 +130,6 @@ export class ScorePanel {
       <p class="lvhint"></p>
       <form class="seed-form" hidden>
         <label for="rift-seed">Seed</label><input id="rift-seed" name="seed" type="number" min="0" max="4294967295" required>
-        <select id="island-tier" aria-label="Difficulty tier" hidden>${[1, 2, 3, 4, 5].map((t) => `<option value="${t}">Tier ${t}</option>`).join('')}</select>
         <button>Generate</button><button class="new-seed" type="button">Random</button>
       </form>
       <div class="regular-score">
@@ -178,20 +180,14 @@ export class ScorePanel {
     };
     this.q<HTMLFormElement>('.seed-form').onsubmit = (event) => {
       event.preventDefault();
-      h.onSeed(this.q<HTMLInputElement>('#rift-seed').valueAsNumber, this.tier());
+      h.onSeed(this.q<HTMLInputElement>('#rift-seed').valueAsNumber);
     };
-    this.q('.new-seed').onclick = () => h.onSeed(crypto.getRandomValues(new Uint32Array(1))[0], this.tier());
-    const tier = this.q<HTMLSelectElement>('#island-tier');
-    tier.onchange = () => h.onSeed(this.level?.seed ?? 0, this.tier());
+    this.q('.new-seed').onclick = () => h.onSeed(crypto.getRandomValues(new Uint32Array(1))[0]);
     const range = this.q<HTMLInputElement>('.weight input');
     range.oninput = () => {
       this.q('.wv').textContent = Number(range.value).toFixed(1);
       h.onWeight(Number(range.value));
     };
-  }
-
-  private tier(): number {
-    return Number(this.q<HTMLSelectElement>('#island-tier').value) || 1;
   }
 
   /** A level was loaded. `dare` is a friend's score from a share link (0 = none). */
@@ -200,12 +196,10 @@ export class ScorePanel {
     this.best = best;
     this.dare = dare;
     this.q('.name').textContent = level.name;
-    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : level === HEURISTIC_TRAP ? 'Duel puzzle' : level.tier ? `Tier ${level.tier}` : level.seed === undefined ? 'Sandbox' : 'Generated';
+    this.q('.kind').textContent = index !== null ? `Level ${index + 1}` : level === HEURISTIC_TRAP ? 'Duel puzzle' : level.tier ? `Tier ${level.tier} · seed ${level.seed}` : level.seed === undefined ? 'Sandbox' : 'Generated';
     this.q('.lvhint').textContent = level.hint;
-    this.q('.seed-form').hidden = level.seed === undefined;
+    this.q('.seed-form').hidden = level.kind !== 'riftworks';
     this.q<HTMLInputElement>('#rift-seed').value = level.seed === undefined ? '' : String(level.seed);
-    this.q('#island-tier').hidden = level.kind !== 'island';
-    if (level.tier) this.q<HTMLSelectElement>('#island-tier').value = String(level.tier);
     this.q('.nodes').textContent = '–';
     this.q('.score').classList.remove('miss');
     this.q('.unit').textContent = 'nodes';
@@ -319,38 +313,58 @@ export class ScorePanel {
   }
 }
 
-/** The level select: challenges with their stars, then the sandboxes. */
-export function openLevelsDialog(
-  levels: Level[],
-  sandboxes: Level[],
-  best: Record<string, number>,
-  current: string,
-  onPick: (level: Level) => void,
-  opener?: HTMLElement,
-): void {
+export type ArchAction = 'here' | 'home' | 'daily' | 'random' | 'seed';
+
+export interface LevelsDialog {
+  arch: { seed: number; daily: boolean; dailyLabel: string; starred: number; away: boolean };
+  sandboxes: Level[];
+  best: Record<string, number>;
+  current: string;
+  onPick(level: Level): void;
+  onArch(action: ArchAction, seed?: number): void;
+}
+
+/** The level select: the archipelago (seeds), the duel puzzles, then the sandboxes. */
+export function openLevelsDialog(o: LevelsDialog, opener?: HTMLElement): void {
   const back = document.createElement('dialog');
   const riftworks = riftworksLevel();
   back.className = 'lvd-back';
   back.setAttribute('aria-labelledby', 'lvd-title');
-  const card = (l: Level, i: number | null) => {
-    const got = starsFor(l, best[l.id] ?? 0);
+  const card = (l: Level) => {
+    const got = starsFor(l, o.best[l.id] ?? 0);
     const stars = l.stars ? `<span class="s">${'★'.repeat(got)}<span class="off">${'★'.repeat(3 - got)}</span></span>` : '';
-    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : l.kind === 'riftworks' ? 'Seeded maze · 36 rooms' : l.kind === 'island' ? 'Seeded · tiers 1–5 · stars' : 'No limits';
-    return `<button class="card${l.id === current ? ' on' : ''}" data-id="${l.id}"${l.id === current ? ' autofocus' : ''}>
-      ${i !== null ? `<span class="n">Level ${i + 1}</span>` : ''}<b>${l.name}</b>${stars}<small>${sub}</small></button>`;
+    const sub = l.budget !== null ? `${l.budget} edits · ${l.inventory} blocks` : l.kind === 'riftworks' ? 'Seeded maze · 36 rooms' : 'No limits';
+    return `<button class="card${l.id === o.current ? ' on' : ''}" data-id="${l.id}"${l.id === o.current ? ' autofocus' : ''}><b>${l.name}</b>${stars}<small>${sub}</small></button>`;
   };
+  const a = o.arch;
+  const archCard = (action: ArchAction, title: string, sub: string, focus = false) =>
+    `<button class="card" data-arch="${action}"${focus ? ' autofocus' : ''}><b>${title}</b><small>${sub}</small></button>`;
   back.innerHTML = `<div class="lvd">
-    <h2 id="lvd-title">Levels</h2><p>Make the bot think as hard as you can. For challenge stars, reach the flag without editing during the run.</p>
-    <h3>Challenges</h3><div class="list">${levels.map((l, i) => card(l, i)).join('')}</div>
-    <h3>Algorithm Duel</h3><div class="list">${card(riftworks, null)}${card(HEURISTIC_TRAP, null)}</div>
-    <h3>Sandbox</h3><div class="list">${sandboxes.map((l) => card(l, null)).join('')}</div></div>`;
+    <h2 id="lvd-title">Levels</h2><p>Make the bot think as hard as you can. For stars, reach the flag without editing during the run.</p>
+    <h3>Archipelago</h3>
+    <p class="arch-sub">Seed ${a.seed}${a.daily ? ` (daily, ${a.dailyLabel})` : ''} · ★ on ${a.starred} island${a.starred === 1 ? '' : 's'}. Earn ★ on an island to open bridges to its neighbours; tiers rise away from home.</p>
+    <div class="list">
+      ${a.away ? archCard('here', 'Back to the islands', 'Where you left off', true) : ''}
+      ${archCard('home', 'Home island', 'Tier 1 · the start')}
+      ${a.daily ? '' : archCard('daily', 'Daily archipelago', `${a.dailyLabel} · same for everyone`)}
+      ${archCard('random', 'Random archipelago', 'A fresh seed')}
+    </div>
+    <form class="arch-seed"><label for="arch-seed">Seed</label><input id="arch-seed" type="number" min="0" max="4294967295" required value="${a.seed}"><button>Go</button></form>
+    <h3>Algorithm Duel</h3><div class="list">${card(riftworks)}${card(HEURISTIC_TRAP)}</div>
+    <h3>Sandbox</h3><div class="list">${o.sandboxes.map((l) => card(l)).join('')}</div></div>`;
+  back.querySelector<HTMLFormElement>('.arch-seed')!.onsubmit = (e) => {
+    e.preventDefault();
+    const seed = back.querySelector<HTMLInputElement>('#arch-seed')!.valueAsNumber;
+    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return;
+    back.close();
+    o.onArch('seed', seed);
+  };
   back.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.card');
-    if (btn) {
-      const l = [...levels, HEURISTIC_TRAP, riftworks, ...sandboxes].find((x) => x.id === btn.dataset.id)!;
-      back.close();
-      onPick(l);
-    }
+    if (!btn) return;
+    back.close();
+    if (btn.dataset.arch) return o.onArch(btn.dataset.arch as ArchAction);
+    o.onPick([HEURISTIC_TRAP, riftworks, ...o.sandboxes].find((x) => x.id === btn.dataset.id)!);
   });
   showModal(back, undefined, opener);
 }

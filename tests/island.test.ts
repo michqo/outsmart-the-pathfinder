@@ -97,7 +97,7 @@ describe('island generator', () => {
   });
 
   it('the island level loads into a world and can be reset to it', () => {
-    const level = islandLevel(1234);
+    const level = islandLevel({ seed: 1234, ix: 0, iz: 0 });
     const w = new World();
     const a = level.generate(w);
     const first = fnv(w.data);

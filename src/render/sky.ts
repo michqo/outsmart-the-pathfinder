@@ -194,6 +194,12 @@ export class Sky {
     for (const c of this.clouds) c.mesh.visible = env === null;
   }
 
+  /** The colour of the low sky, which distant things fade into (linear, before tone mapping). */
+  hazeColor(out = new THREE.Color()): THREE.Color {
+    if (this.realDome.visible) return out.copy(this.realUniforms.uBands.value[1]).multiplyScalar(this.realUniforms.uIntensity.value);
+    return out.copy(this.uniforms.uHorizon.value);
+  }
+
   setLowQuality(low: boolean): void {
     const m = this.realDome.material as THREE.ShaderMaterial;
     if (!!m.defines.LOW_QUALITY === low) return;

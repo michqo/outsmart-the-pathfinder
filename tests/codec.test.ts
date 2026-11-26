@@ -74,3 +74,19 @@ describe('share links', () => {
     expect(courseFromHash('#other')).toBeNull();
   });
 });
+
+describe('island links (v2)', () => {
+  it('round-trip, with negative grid cells and a full-range seed', async () => {
+    const { decodeLink, encodeIsland } = await import('../src/levels/codec');
+    const s = { seed: 0xfedcba98, ix: -3, iz: 12, cap: 80, dare: 123456, genVersion: 1, tuneVersion: 1 };
+    const text = await encodeIsland(s);
+    expect(text.length).toBeLessThan(40);
+    expect(await decodeLink(text)).toEqual({ v: 2, island: s });
+  });
+
+  it('v1 links still decode through the same entry point', async () => {
+    const { decodeLink } = await import('../src/levels/codec');
+    const level: SharedLevel = { mode: 'challenge', levelId: 'first-wall', world: null, start: [1, 2, 3], goal: [4, 5, 6], inventory: 0, weight: 1, dare: 77 };
+    expect(await decodeLink(await encodeLevel(level))).toEqual({ v: 1, level });
+  });
+});
